@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/responsive_utils.dart';
 import '../../providers/auth_provider.dart';
+import 'email_verification_screen.dart';
+
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -21,7 +23,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _phoneController = TextEditingController();
-  
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
@@ -79,12 +81,12 @@ class _SignupScreenState extends State<SignupScreen> {
                   children: [
                     // Signup form
                     _buildSignupForm(context, authProvider),
-                    
+
                     SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 32)),
-                    
+
                     // Signup button
                     _buildSignupButton(context, authProvider),
-                    
+
                     // Error message
                     if (authProvider.errorMessage != null) ...[
                       SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 16)),
@@ -123,9 +125,9 @@ class _SignupScreenState extends State<SignupScreen> {
           },
           onChanged: (_) => authProvider.clearError(),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Email field
         TextFormField(
           controller: _emailController,
@@ -147,9 +149,9 @@ class _SignupScreenState extends State<SignupScreen> {
           },
           onChanged: (_) => authProvider.clearError(),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Password field
         TextFormField(
           controller: _passwordController,
@@ -181,9 +183,9 @@ class _SignupScreenState extends State<SignupScreen> {
           },
           onChanged: (_) => authProvider.clearError(),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Confirm password field
         TextFormField(
           controller: _confirmPasswordController,
@@ -215,9 +217,9 @@ class _SignupScreenState extends State<SignupScreen> {
           },
           onChanged: (_) => authProvider.clearError(),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Optional fields section
         Text(
           '可选信息',
@@ -226,9 +228,9 @@ class _SignupScreenState extends State<SignupScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        
+
         const SizedBox(height: 12),
-        
+
         // First name field
         TextFormField(
           controller: _firstNameController,
@@ -239,9 +241,9 @@ class _SignupScreenState extends State<SignupScreen> {
             prefixIcon: Icon(Icons.badge_outlined),
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Last name field
         TextFormField(
           controller: _lastNameController,
@@ -252,9 +254,9 @@ class _SignupScreenState extends State<SignupScreen> {
             prefixIcon: Icon(Icons.badge_outlined),
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Phone field
         TextFormField(
           controller: _phoneController,
@@ -313,16 +315,27 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  void _handleSignup(BuildContext context, AuthProvider authProvider) {
-    if (_formKey.currentState?.validate() ?? false) {
-      authProvider.signup(
-        username: _usernameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-        firstName: _firstNameController.text.trim().isEmpty ? null : _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim().isEmpty ? null : _lastNameController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-      );
-    }
+  void _handleSignup(BuildContext context, AuthProvider authProvider) async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    // For passwordless flow, we still start with email verification
+    await authProvider.sendVerificationCode(_emailController.text.trim());
+
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const EmailVerificationScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.0, 1.0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
   }
 }

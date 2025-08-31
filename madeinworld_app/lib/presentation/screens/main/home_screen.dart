@@ -61,10 +61,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Periodic refresh removed; keep placeholder to avoid accidental re-introduction
-  void _startPeriodicRefresh() {
-    _refreshTimer?.cancel();
-  }
+
 
   // Method to refresh featured products
   Future<void> _refreshFeaturedProducts() async {

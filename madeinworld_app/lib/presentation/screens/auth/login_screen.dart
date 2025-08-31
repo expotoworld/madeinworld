@@ -5,6 +5,8 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/responsive_utils.dart';
 import '../../providers/auth_provider.dart';
 import 'signup_screen.dart';
+import 'email_verification_screen.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -153,9 +155,9 @@ class _LoginScreenState extends State<LoginScreen> {
           },
           onChanged: (_) => authProvider.clearError(),
         ),
-        
+
         SizedBox(height: ResponsiveUtils.getResponsiveSpacing(context, 16)),
-        
+
         // Password field
         TextFormField(
           controller: _passwordController,
@@ -258,13 +260,31 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _handleLogin(BuildContext context, AuthProvider authProvider) {
-    if (_formKey.currentState?.validate() ?? false) {
-      authProvider.login(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
-    }
+  void _handleLogin(BuildContext context, AuthProvider authProvider) async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    // New passwordless flow: send verification then navigate to the verification screen
+    await authProvider.sendVerificationCode(_emailController.text.trim());
+
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => EmailVerificationScreen(
+          initialEmail: _emailController.text.trim(),
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.0, 1.0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
   }
 
   void _navigateToSignup(BuildContext context) {

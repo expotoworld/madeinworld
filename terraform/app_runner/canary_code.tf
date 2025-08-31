@@ -5,16 +5,20 @@ data "archive_file" "auth_ready_zip" {
   output_path = "${path.module}/auth_ready.zip"
   source {
     content  = <<-EOT
-      const synthetics = require('Synthetics');
-      const api = async function () {
+      const https = require('https');
+      exports.handler = async () => {
         const url = process.env.TARGET_URL;
-        const request = require('request-promise-native');
-        const resp = await request({ uri: url, resolveWithFullResponse: true, simple: false });
-        if (resp.statusCode !== 200) {
-          throw new Error('Non-200 status: ' + resp.statusCode);
-        }
+        if (!url) throw new Error('TARGET_URL is not set');
+        await new Promise((resolve, reject) => {
+          https.get(url, (res) => {
+            if (res.statusCode === 200) {
+              resolve();
+            } else {
+              reject(new Error('Non-200: ' + res.statusCode));
+            }
+          }).on('error', reject);
+        });
       };
-      exports.handler = async () => await api();
     EOT
     filename = "index.js"
   }

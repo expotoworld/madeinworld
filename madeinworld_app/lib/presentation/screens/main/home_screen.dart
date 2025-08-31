@@ -38,8 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Initialize the featured products future
     _refreshFeaturedProducts();
 
-    // Start periodic refresh timer (every 30 seconds)
-    _startPeriodicRefresh();
+    // Removed 30s periodic refresh to reduce backend load; rely on pull-to-refresh and foreground refresh only
   }
 
   @override
@@ -56,18 +55,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Automatically refresh data when app comes to foreground
     if (state == AppLifecycleState.resumed) {
       _refreshFeaturedProducts();
-      _startPeriodicRefresh(); // Restart timer when app resumes
+      // No periodic timer on resume to avoid background polling
     } else if (state == AppLifecycleState.paused) {
       _refreshTimer?.cancel(); // Stop timer when app is paused
     }
   }
 
-  // Start periodic refresh timer
+  // Periodic refresh removed; keep placeholder to avoid accidental re-introduction
   void _startPeriodicRefresh() {
-    _refreshTimer?.cancel(); // Cancel existing timer
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      _refreshFeaturedProducts();
-    });
+    _refreshTimer?.cancel();
   }
 
   // Method to refresh featured products

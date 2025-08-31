@@ -8,17 +8,25 @@ import '../../../data/services/auth_service.dart';
 import '../../providers/auth_provider.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
-  const EmailVerificationScreen({super.key});
+  final String? initialEmail;
+  const EmailVerificationScreen({super.key, this.initialEmail});
 
   @override
   State<EmailVerificationScreen> createState() => _EmailVerificationScreenState();
 }
 
 class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialEmail != null && widget.initialEmail!.isNotEmpty) {
+      _emailController.text = widget.initialEmail!;
+    }
+  }
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _codeController = TextEditingController();
-  
+
   bool _isCodeSent = false;
   bool _isLoading = false;
   String? _errorMessage;

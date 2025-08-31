@@ -400,10 +400,7 @@ class __ProductsTabState extends State<_ProductsTab>
     }
   }
 
-  // Periodic refresh removed
-  void _startPeriodicRefresh() {
-    _refreshTimer?.cancel();
-  }
+
 
   @override
   void didChangeDependencies() {

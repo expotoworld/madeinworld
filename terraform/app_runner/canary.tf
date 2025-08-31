@@ -25,6 +25,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 resource "aws_iam_role_policy_attachment" "s3_rw" {
   role       = data.aws_iam_role.synthetics_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
 
 resource "aws_iam_role_policy" "synthetics_putmetrics" {
   name = "${var.project}-synthetics-putmetrics"
@@ -37,8 +38,6 @@ resource "aws_iam_role_policy" "synthetics_putmetrics" {
       Resource = "*"
     }]
   })
-}
-
 }
 
 # Canary that polls auth-service /ready every 2 minutes

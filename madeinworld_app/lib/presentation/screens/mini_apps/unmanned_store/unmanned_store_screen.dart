@@ -345,8 +345,7 @@ class __ProductsTabState extends State<_ProductsTab>
     _productsFuture = Future.value([]);
     // Initialize store selection
     _initializeStore();
-    // Start periodic refresh timer (every 30 seconds)
-    _startPeriodicRefresh();
+    // Removed 30s periodic refresh; rely on pull-to-refresh and foreground refresh only
   }
 
   void _initializeStore() async {
@@ -395,18 +394,15 @@ class __ProductsTabState extends State<_ProductsTab>
     // Automatically refresh data when app comes to foreground
     if (state == AppLifecycleState.resumed) {
       fetchData();
-      _startPeriodicRefresh(); // Restart timer when app resumes
+      // No periodic timer on resume to avoid background polling
     } else if (state == AppLifecycleState.paused) {
       _refreshTimer?.cancel(); // Stop timer when app is paused
     }
   }
 
-  // Start periodic refresh timer
+  // Periodic refresh removed
   void _startPeriodicRefresh() {
-    _refreshTimer?.cancel(); // Cancel existing timer
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      fetchData();
-    });
+    _refreshTimer?.cancel();
   }
 
   @override

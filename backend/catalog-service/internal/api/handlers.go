@@ -1178,11 +1178,10 @@ func (h *Handler) uploadToS3(ctx context.Context, productID int, fileHeader *mul
 	// Reset file pointer
 	file.Seek(0, 0)
 
-	// Set up AWS S3 Client
-	awsProfile := "madeinworld-frankfurt"
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithSharedConfigProfile(awsProfile))
+	// Set up AWS S3 Client using default credential chain (App Runner instance role in AWS)
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to load AWS config with profile %s: %w", awsProfile, err)
+		return "", fmt.Errorf("failed to load AWS default config: %w", err)
 	}
 	s3Client := s3.NewFromConfig(cfg)
 

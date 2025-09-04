@@ -39,7 +39,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Parse and validate token
 		secret := os.Getenv("JWT_SECRET")
 		if secret == "" {
-			secret = "your-secret-key-change-this-in-production"
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+				Error:   "Server not configured",
+				Message: "JWT secret missing",
+			})
+			c.Abort()
+			return
 		}
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {

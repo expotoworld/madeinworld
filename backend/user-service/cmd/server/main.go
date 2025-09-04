@@ -6,6 +6,7 @@ import (
 
 	"user-service/internal/api"
 	"user-service/internal/db"
+	"user-service/internal/logging"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -58,7 +59,7 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 	router := gin.New()
 
 	// Add middleware
-	router.Use(gin.Logger())
+	router.Use(logging.JSONLogger())
 	router.Use(gin.Recovery())
 	router.Use(api.CORSMiddleware())
 

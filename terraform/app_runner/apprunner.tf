@@ -57,8 +57,8 @@ resource "aws_ecr_repository" "service_repos" {
 
 resource "aws_apprunner_service" "main_services" {
   for_each     = local.services
-  service_name = "${var.project}-${each.key}-dev"
-
+  service_name                    = "${var.project}-${each.key}-dev"
+  auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.default.arn
 
   # Avoid Terraform fighting with CI image updates; ignore image tag/drift.
   lifecycle {
@@ -107,6 +107,8 @@ resource "aws_apprunner_service" "main_services" {
 
   instance_configuration {
     instance_role_arn = aws_iam_role.apprunner_instance_role.arn
+    cpu               = "256"   # 0.25 vCPU
+    memory            = "512"   # 0.5 GB
   }
 
   health_check_configuration {
@@ -119,3 +121,16 @@ resource "aws_apprunner_service" "main_services" {
     Phase   = "1"
   }
 }
+
+resource "aws_apprunner_auto_scaling_configuration_version" "default" {
+  auto_scaling_configuration_name = "${var.project}-asc-default"
+  max_concurrency                 = 50
+  max_size                        = 2
+  min_size                        = 1
+}
+
+
+# CloudWatch log groups created by App Runner are under:
+# /aws/apprunner/${var.project}-${service}-dev/<service-id>/{service|application}
+# We cannot know service-id at plan time reliably; retention is best applied post-create.
+# The GitHub workflow will set retention for matching groups after apply.

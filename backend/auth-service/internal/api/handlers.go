@@ -187,7 +187,7 @@ func (h *Handler) generateJWTToken(userID string, email string) (string, error) 
 	// Get JWT secret from environment
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "your-secret-key-change-this-in-production" // Default for development
+		return "", fmt.Errorf("JWT secret not configured")
 	}
 
 	// Get token expiration time (default 24 hours)
@@ -243,7 +243,11 @@ func (h *Handler) Refresh(c *gin.Context) {
 	// Parse existing token
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "your-secret-key-change-this-in-production"
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Server not configured",
+			Message: "JWT secret missing",
+		})
+		return
 	}
 
 	token, err := jwt.Parse(existingToken, func(token *jwt.Token) (interface{}, error) {
@@ -334,7 +338,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Parse and validate token
 		secret := os.Getenv("JWT_SECRET")
 		if secret == "" {
-			secret = "your-secret-key-change-this-in-production"
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+				Error:   "Server not configured",
+				Message: "JWT secret missing",
+			})
+			c.Abort()
+			return
 		}
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -407,27 +416,24 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Check rate limiting - TEMPORARILY DISABLED FOR TESTING
-	// TODO: Re-enable rate limiting in production
-	/*
-		maxRequests := getEnvInt("RATE_LIMIT_REQUESTS_PER_HOUR", 5)
-		rateLimited, err := h.DB.CheckUserRateLimit(ctx, clientIP, maxRequests, 1)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-				Error:   "Rate limit check failed",
-				Message: err.Error(),
-			})
-			return
-		}
+	// Check rate limiting
+	maxRequests := getEnvInt("RATE_LIMIT_REQUESTS_PER_HOUR", 5)
+	rateLimited, err := h.DB.CheckUserRateLimit(ctx, clientIP, maxRequests, 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Rate limit check failed",
+			Message: err.Error(),
+		})
+		return
+	}
 
-		if rateLimited {
-			c.JSON(http.StatusTooManyRequests, models.ErrorResponse{
-				Error:   "Rate limit exceeded",
-				Message: fmt.Sprintf("Maximum %d requests per hour allowed", maxRequests),
-			})
-			return
-		}
-	*/
+	if rateLimited {
+		c.JSON(http.StatusTooManyRequests, models.ErrorResponse{
+			Error:   "Rate limit exceeded",
+			Message: fmt.Sprintf("Maximum %d requests per hour allowed", maxRequests),
+		})
+		return
+	}
 
 	// Generate 6-digit verification code
 	code, err := generateVerificationCode()
@@ -463,14 +469,11 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 		return
 	}
 
-	// Increment rate limit - TEMPORARILY DISABLED FOR TESTING
-	// TODO: Re-enable rate limiting in production
-	/*
-		if err := h.DB.IncrementUserRateLimit(ctx, clientIP); err != nil {
-			// Log error but don't fail the request
-			fmt.Printf("Failed to increment user rate limit: %v\n", err)
-		}
-	*/
+	// Increment rate limit (best effort)
+	if err := h.DB.IncrementUserRateLimit(ctx, clientIP); err != nil {
+		// Log error but don't fail the request
+		fmt.Printf("Failed to increment user rate limit: %v\n", err)
+	}
 
 	// Send email
 	emailService := services.NewEmailService()

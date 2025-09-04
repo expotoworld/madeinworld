@@ -51,7 +51,7 @@ jobs:
           echo "TF_VAR_secret_arn_ses_user=${{ secrets.SECRET_ARN_SES_USER || secrets.SES_SMTP_USER_ARN }}" >> $GITHUB_ENV
           echo "TF_VAR_secret_arn_ses_pass=${{ secrets.SECRET_ARN_SES_PASS || secrets.SES_SMTP_PASS_ARN }}" >> $GITHUB_ENV
           echo "TF_VAR_ses_from_email=${{ secrets.SES_FROM_EMAIL }}" >> $GITHUB_ENV
-          echo "TF_VAR_canary_schedule_expression=${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'rate(1 day)' }}" >> $GITHUB_ENV
+          echo "TF_VAR_canary_schedule_expression=${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'cron(0 0 * * ? *)' }}" >> $GITHUB_ENV
 
 
 

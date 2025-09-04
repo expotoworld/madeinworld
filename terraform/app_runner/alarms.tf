@@ -22,6 +22,11 @@ resource "aws_sns_topic" "apprunner_alarms" {
   name  = "${var.project}-apprunner-alarms"
 }
 
+# Avoid reading subscription before it’s confirmed; only create the subscription
+# resource when an email is provided and confirmation is expected. The provider
+# will still call GetSubscriptionAttributes during create. Ensure the CI role has
+# sns:GetSubscriptionAttributes, or skip subscription creation in CI by setting
+# email empty.
 resource "aws_sns_topic_subscription" "apprunner_alarms_email" {
   count     = length(trimspace(var.alarm_notification_email)) > 0 ? 1 : 0
   topic_arn = aws_sns_topic.apprunner_alarms[0].arn

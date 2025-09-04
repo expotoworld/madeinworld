@@ -126,7 +126,19 @@ jobs:
       - name: Terraform Plan
         run: terraform plan -input=false -no-color -parallelism=1
 
-      - name: Terraform Apply
+      - name: Terraform Apply (App Runner: auth-service)
+        run: terraform apply -input=false -auto-approve -no-color -parallelism=1 -target='aws_apprunner_service.main_services["auth-service"]'
+
+      - name: Terraform Apply (App Runner: catalog-service)
+        run: terraform apply -input=false -auto-approve -no-color -parallelism=1 -target='aws_apprunner_service.main_services["catalog-service"]'
+
+      - name: Terraform Apply (App Runner: order-service)
+        run: terraform apply -input=false -auto-approve -no-color -parallelism=1 -target='aws_apprunner_service.main_services["order-service"]'
+
+      - name: Terraform Apply (App Runner: user-service)
+        run: terraform apply -input=false -auto-approve -no-color -parallelism=1 -target='aws_apprunner_service.main_services["user-service"]'
+
+      - name: Terraform Apply (remaining resources)
         run: terraform apply -input=false -auto-approve -no-color -parallelism=1
 
       - name: Set CloudWatch log retention for App Runner groups

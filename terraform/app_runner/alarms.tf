@@ -1,8 +1,39 @@
 # CloudWatch Alarms for App Runner services
 
 # Inputs
-variable "alarm_5xx_threshold" { type = number, default = 5 }     # 5xx count in 5m
-variable "alarm_latency_p95_ms" { type = number, default = 1000 } # 95th percentile latency in ms
+variable "alarm_5xx_threshold" {
+  type    = number
+  default = 5
+}
+
+variable "alarm_latency_p95_ms" {
+  type    = number
+  default = 1000
+}
+
+# Optional SNS topic for alarm notifications (email). Created only if email provided.
+variable "alarm_notification_email" {
+  type    = string
+  default = ""
+}
+
+resource "aws_sns_topic" "apprunner_alarms" {
+  count = length(trimspace(var.alarm_notification_email)) > 0 ? 1 : 0
+  name  = "${var.project}-apprunner-alarms"
+}
+
+resource "aws_sns_topic_subscription" "apprunner_alarms_email" {
+  count     = length(trimspace(var.alarm_notification_email)) > 0 ? 1 : 0
+  topic_arn = aws_sns_topic.apprunner_alarms[0].arn
+  protocol  = "email"
+  endpoint  = var.alarm_notification_email
+}
+
+locals {
+  alarm_services  = [for name, _ in local.services : name]
+  alarm_topic_arn = length(trimspace(var.alarm_notification_email)) > 0 ? aws_sns_topic.apprunner_alarms[0].arn : null
+}
+
 
 # For each service in local.services, create alarms based on App Runner metrics.
 # Namespace and metric names per AWS docs:
@@ -10,9 +41,6 @@ variable "alarm_latency_p95_ms" { type = number, default = 1000 } # 95th percent
 # - Service-level dimensions: ServiceName
 # - Metrics: Requests, 5xxStatusResponses, RequestLatency
 
-locals {
-  alarm_services = [for name, _ in local.services : name]
-}
 
 # 5xx count over 5 minutes
 resource "aws_cloudwatch_metric_alarm" "apprunner_5xx" {
@@ -28,6 +56,8 @@ resource "aws_cloudwatch_metric_alarm" "apprunner_5xx" {
   threshold           = var.alarm_5xx_threshold
   comparison_operator = "GreaterThanOrEqualToThreshold"
   treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_topic_arn != null ? [local.alarm_topic_arn] : []
+  ok_actions          = local.alarm_topic_arn != null ? [local.alarm_topic_arn] : []
 }
 
 # p95 latency over 5 minutes
@@ -44,5 +74,7 @@ resource "aws_cloudwatch_metric_alarm" "apprunner_latency_p95" {
   threshold           = var.alarm_latency_p95_ms
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_topic_arn != null ? [local.alarm_topic_arn] : []
+  ok_actions          = local.alarm_topic_arn != null ? [local.alarm_topic_arn] : []
 }
 

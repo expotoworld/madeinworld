@@ -124,10 +124,10 @@ jobs:
           terraform state list || true
 
       - name: Terraform Plan
-        run: terraform plan -input=false -no-color
+        run: terraform plan -input=false -no-color -parallelism=1
 
       - name: Terraform Apply
-        run: terraform apply -input=false -auto-approve -no-color
+        run: terraform apply -input=false -auto-approve -no-color -parallelism=1
 
       - name: Set CloudWatch log retention for App Runner groups
         if: success()

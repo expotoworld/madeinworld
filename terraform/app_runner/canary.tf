@@ -60,6 +60,13 @@ resource "aws_synthetics_canary" "auth_ready" {
     }
   }
 
+  # TEMP: avoid runtime changes until we explicitly republish code archive
+  lifecycle {
+    ignore_changes = [
+      runtime_version
+    ]
+  }
+
 }
 
 variable "canary_schedule_expression" {

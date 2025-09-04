@@ -33,21 +33,7 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.12.2
 
-      - name: Terraform Init (S3 backend)
-        run: |
-          terraform init -input=false -migrate-state \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=app_runner/terraform.tfstate" \
-            -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${TF_LOCK_TABLE}"
-
-      - name: Terraform Validate
-        run: terraform validate
 
       - name: Import existing infra dynamically
         run: |
@@ -132,66 +118,6 @@ jobs:
           set -e
           echo "Setting retention to 14 days for App Runner log groups"
           groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/madeinworld-" --query 'logGroups[].logGroupName' --output text || true)
-          for g in $groups; do
-            echo "Applying retention on $g"
-            aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true
-          done
-
-          echo "=== Importing existing infra dynamically ==="
-
-          safe_import() {
-            local addr="$1"; local id="$2"
-            if [ -z "$id" ] || [ "$id" = "null" ] || [ "$id" = "None" ]; then
-              echo "skip: empty id for $addr"; return 0; fi
-            if terraform state list | grep -q "^${addr}$"; then
-              echo "ok: already in state $addr"; return 0; fi
-            echo "import: $addr <- $id"
-            terraform import -input=false -no-color "$addr" "$id" || true
-          }
-
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="${AWS_REGION:-eu-central-1}"
-
-          # Import ECR repos
-          for NAME in auth-service catalog-service order-service user-service; do
-            safe_import "aws_ecr_repository.service_repos[\"$NAME\"]" "madeinworld/$NAME"
-          done
-
-          # S3 canary artifacts bucket is a data source in TF; do not import as a resource
-          # Import IAM roles and policy (managed in TF)
-          safe_import aws_iam_role.apprunner_ecr_access_role   "madeinworld-apprunner-ecr-access-role"
-          safe_import aws_iam_role.apprunner_instance_role     "madeinworld-apprunner-instance-role"
-          safe_import aws_iam_policy.apprunner_secrets_policy  "arn:aws:iam::${ACCOUNT_ID}:policy/madeinworld-apprunner-secrets-policy"
-
-          # Import App Runner services by discovering ARNs dynamically (no hardcoded IDs)
-          for svc in auth-service catalog-service order-service user-service; do
-            svc_name="madeinworld-$svc-dev"
-            arn=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${svc_name}'].ServiceArn | [0]" --output text 2>/dev/null || echo "")
-            if [ -n "$arn" ] && [ "$arn" != "None" ] && [ "$arn" != "null" ]; then
-              safe_import "aws_apprunner_service.main_services[\"$svc\"]" "$arn"
-            else
-              echo "info: App Runner service $svc_name not found; will be created if defined"
-            fi
-          done
-
-          echo "=== Import complete ==="
-          terraform state list || true
-
-      - name: Terraform Plan
-        run: terraform plan -input=false -no-color
-
-      - name: Terraform Apply
-        run: terraform apply -input=false -auto-approve -no-color
-
-
-      - name: Set CloudWatch log retention for App Runner groups
-        if: success()
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-        run: |
-          set -e
-          echo "Setting retention to 14 days for App Runner log groups"
-          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/${{ env.TF_VAR_project }}-" --query 'logGroups[].logGroupName' --output text || true)
           for g in $groups; do
             echo "Applying retention on $g"
             aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true

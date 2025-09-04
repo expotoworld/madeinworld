@@ -21,17 +21,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
-      TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
-      TF_VAR_project: madeinworld
-      TF_VAR_neon_db_host: ${{ secrets.NEON_DB_HOST }}
-      TF_VAR_neon_db_user: ${{ secrets.NEON_DB_USER }}
-      TF_VAR_neon_db_name: ${{ secrets.NEON_DB_NAME }}
-      TF_VAR_secret_arn_db_password: ${{ secrets.TF_VAR_SECRET_ARN_DB_PASSWORD || secrets.SECRET_ARN_DB_PASSWORD || secrets.DB_SECRET_ARN }}
-      TF_VAR_secret_arn_jwt_secret: ${{ secrets.SECRET_ARN_JWT_SECRET || secrets.JWT_SECRET_ARN }}
-      TF_VAR_secret_arn_ses_user: ${{ secrets.SECRET_ARN_SES_USER || secrets.SES_SMTP_USER_ARN }}
-      TF_VAR_secret_arn_ses_pass: ${{ secrets.SECRET_ARN_SES_PASS || secrets.SES_SMTP_PASS_ARN }}
-      TF_VAR_ses_from_email: ${{ secrets.SES_FROM_EMAIL }}
-      TF_VAR_canary_schedule_expression: ${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'rate(1 day)' }}
+      # All other TF_VAR_* and secret-derived variables are exported in the "Export secrets to env" step.
 
     steps:
       - name: Checkout
@@ -40,8 +30,28 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ env.IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Export secrets to env
+        shell: bash
+        run: |
+          echo "IAM_ROLE_ARN=${{ secrets.IAM_ROLE_ARN }}" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_STATE_BUCKET=${{ secrets.TF_STATE_BUCKET }}" >> $GITHUB_ENV
+          echo "TF_LOCK_TABLE=${{ secrets.TF_LOCK_TABLE }}" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_VAR_project=madeinworld" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_host=${{ secrets.NEON_DB_HOST }}" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_user=${{ secrets.NEON_DB_USER }}" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_name=${{ secrets.NEON_DB_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_db_password=${{ secrets.TF_VAR_SECRET_ARN_DB_PASSWORD || secrets.SECRET_ARN_DB_PASSWORD || secrets.DB_SECRET_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_jwt_secret=${{ secrets.SECRET_ARN_JWT_SECRET || secrets.JWT_SECRET_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_ses_user=${{ secrets.SECRET_ARN_SES_USER || secrets.SES_SMTP_USER_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_ses_pass=${{ secrets.SECRET_ARN_SES_PASS || secrets.SES_SMTP_PASS_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_ses_from_email=${{ secrets.SES_FROM_EMAIL }}" >> $GITHUB_ENV
+          echo "TF_VAR_canary_schedule_expression=${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'rate(1 day)' }}" >> $GITHUB_ENV
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -51,10 +61,10 @@ jobs:
       - name: Terraform Init (S3 backend)
         run: |
           terraform init -input=false -migrate-state \
-            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=app_runner/terraform.tfstate" \
-            -backend-config="region=${{ secrets.AWS_REGION }}" \
-            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}"
 
       - name: Terraform Validate
         run: terraform validate
@@ -82,9 +92,7 @@ jobs:
             safe_import "aws_ecr_repository.service_repos[\"$NAME\"]" "madeinworld/$NAME"
           done
 
-          # Import S3 bucket (canary artifacts)
-          safe_import aws_s3_bucket.synthetics_artifacts "madeinworld-synthetics-artifacts"
-
+          # S3 canary artifacts bucket is a data source in TF; do not import as a resource
           # Import IAM roles and policy (managed in TF)
           safe_import aws_iam_role.apprunner_ecr_access_role   "madeinworld-apprunner-ecr-access-role"
           safe_import aws_iam_role.apprunner_instance_role     "madeinworld-apprunner-instance-role"
@@ -109,3 +117,17 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve -no-color
+
+
+      - name: Set CloudWatch log retention for App Runner groups
+        if: success()
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          set -e
+          echo "Setting retention to 14 days for App Runner log groups"
+          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/${{ env.TF_VAR_project }}-" --query 'logGroups[].logGroupName' --output text || true)
+          for g in $groups; do
+            echo "Applying retention on $g"
+            aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true
+          done

@@ -65,6 +65,6 @@ resource "aws_synthetics_canary" "auth_ready" {
 variable "canary_schedule_expression" {
   description = "Schedule for the readiness canary"
   type        = string
-  default     = "rate(1 day)"
+  default     = "cron(0 0 * * ? *)"
 }
 

@@ -35,9 +35,7 @@ jobs:
 
 
 
-      - name: Import existing infra dynamically
-        run: |
-          set -e
+
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

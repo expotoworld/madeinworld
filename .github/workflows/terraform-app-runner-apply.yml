@@ -21,8 +21,11 @@ jobs:
     env:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
+<<<<<<< HEAD
+=======
       # All other TF_VAR_* and secret-derived variables are exported in the "Export secrets to env" step.
 
+>>>>>>> origin/main
 
     steps:
       - name: Checkout
@@ -54,12 +57,21 @@ jobs:
           echo "TF_VAR_ses_from_email=${{ secrets.SES_FROM_EMAIL }}" >> $GITHUB_ENV
           echo "TF_VAR_canary_schedule_expression=${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'rate(1 day)' }}" >> $GITHUB_ENV
 
+
+
+
+
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.12.2
 
       - name: Terraform Init (S3 backend)
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           terraform init -input=false -migrate-state \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -71,6 +83,8 @@ jobs:
         run: terraform validate
 
       - name: Import existing infra dynamically
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -e
           echo "=== Importing existing infra dynamically ==="
@@ -119,6 +133,16 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve -no-color
 
+<<<<<<< HEAD
+      - name: Set CloudWatch log retention for App Runner groups
+        if: success()
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -e
+          echo "Setting retention to 14 days for App Runner log groups"
+          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/madeinworld-" --query 'logGroups[].logGroupName' --output text || true)
+=======
 
       - name: Set CloudWatch log retention for App Runner groups
         if: success()
@@ -128,6 +152,7 @@ jobs:
           set -e
           echo "Setting retention to 14 days for App Runner log groups"
           groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/${{ env.TF_VAR_project }}-" --query 'logGroups[].logGroupName' --output text || true)
+>>>>>>> origin/main
           for g in $groups; do
             echo "Applying retention on $g"
             aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true

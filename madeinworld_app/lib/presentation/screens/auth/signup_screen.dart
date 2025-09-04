@@ -317,16 +317,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
   void _handleSignup(BuildContext context, AuthProvider authProvider) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-<<<<<<< HEAD
-
     final email = _emailController.text.trim();
 
     try {
-      // For passwordless flow, start by sending a verification code
       await authProvider.sendVerificationCode(email);
-
       if (!context.mounted) return;
-      // Navigate and prefill the email so users don't retype it
       Navigator.of(context).push(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) => EmailVerificationScreen(initialEmail: email),
@@ -345,32 +340,9 @@ class _SignupScreenState extends State<SignupScreen> {
       );
     } catch (e) {
       if (!context.mounted) return;
-      // Basic error surface for UX; provider already stores the message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
       );
     }
-=======
-    // For passwordless flow, we still start with email verification
-    await authProvider.sendVerificationCode(_emailController.text.trim());
-
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const EmailVerificationScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0.0, 1.0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 300),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
-      ),
-    );
->>>>>>> origin/main
   }
 }

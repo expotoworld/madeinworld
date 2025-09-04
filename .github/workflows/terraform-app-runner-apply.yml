@@ -21,8 +21,6 @@ jobs:
     env:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
-      # All other TF_VAR_* and secret-derived variables are exported in the "Export secrets to env" step.
-
 
     steps:
       - name: Checkout
@@ -31,8 +29,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.IAM_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
 
       - name: Export secrets to env

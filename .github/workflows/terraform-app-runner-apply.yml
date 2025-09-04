@@ -21,6 +21,11 @@ jobs:
     env:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
+<<<<<<< HEAD
+=======
+      # All other TF_VAR_* and secret-derived variables are exported in the "Export secrets to env" step.
+
+>>>>>>> origin/main
 
     steps:
       - name: Checkout
@@ -29,8 +34,28 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ env.IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Export secrets to env
+        shell: bash
+        run: |
+          echo "IAM_ROLE_ARN=${{ secrets.IAM_ROLE_ARN }}" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_STATE_BUCKET=${{ secrets.TF_STATE_BUCKET }}" >> $GITHUB_ENV
+          echo "TF_LOCK_TABLE=${{ secrets.TF_LOCK_TABLE }}" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_VAR_project=madeinworld" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_host=${{ secrets.NEON_DB_HOST }}" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_user=${{ secrets.NEON_DB_USER }}" >> $GITHUB_ENV
+          echo "TF_VAR_neon_db_name=${{ secrets.NEON_DB_NAME }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_db_password=${{ secrets.TF_VAR_SECRET_ARN_DB_PASSWORD || secrets.SECRET_ARN_DB_PASSWORD || secrets.DB_SECRET_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_jwt_secret=${{ secrets.SECRET_ARN_JWT_SECRET || secrets.JWT_SECRET_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_ses_user=${{ secrets.SECRET_ARN_SES_USER || secrets.SES_SMTP_USER_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_secret_arn_ses_pass=${{ secrets.SECRET_ARN_SES_PASS || secrets.SES_SMTP_PASS_ARN }}" >> $GITHUB_ENV
+          echo "TF_VAR_ses_from_email=${{ secrets.SES_FROM_EMAIL }}" >> $GITHUB_ENV
+          echo "TF_VAR_canary_schedule_expression=${{ secrets.CANARY_SCHEDULE_EXPRESSION || 'rate(1 day)' }}" >> $GITHUB_ENV
 
 
 
@@ -108,6 +133,7 @@ jobs:
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve -no-color
 
+<<<<<<< HEAD
       - name: Set CloudWatch log retention for App Runner groups
         if: success()
         env:
@@ -116,6 +142,17 @@ jobs:
           set -e
           echo "Setting retention to 14 days for App Runner log groups"
           groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/madeinworld-" --query 'logGroups[].logGroupName' --output text || true)
+=======
+
+      - name: Set CloudWatch log retention for App Runner groups
+        if: success()
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          set -e
+          echo "Setting retention to 14 days for App Runner log groups"
+          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/${{ env.TF_VAR_project }}-" --query 'logGroups[].logGroupName' --output text || true)
+>>>>>>> origin/main
           for g in $groups; do
             echo "Applying retention on $g"
             aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true

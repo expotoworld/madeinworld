@@ -320,6 +320,7 @@ class _SignupScreenState extends State<SignupScreen> {
     final email = _emailController.text.trim();
 
     try {
+      // Send verification code and navigate with prefilled email
       await authProvider.sendVerificationCode(email);
       if (!context.mounted) return;
       Navigator.of(context).push(

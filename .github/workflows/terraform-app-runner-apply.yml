@@ -21,7 +21,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
-
+      TF_VAR_alarm_notification_email: "expotobsrl@gmail.com"
 
     steps:
       - name: Checkout

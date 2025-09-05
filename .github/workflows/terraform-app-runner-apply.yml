@@ -88,23 +88,7 @@ jobs:
       - name: Terraform Plan
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m
 
-      - name: "Terraform Apply (App Runner: auth-service)"
-        run: |
-          terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m -target='aws_apprunner_service.main_services["auth-service"]'
-
-      - name: "Terraform Apply (App Runner: catalog-service)"
-        run: |
-          terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m -target='aws_apprunner_service.main_services["catalog-service"]'
-
-      - name: "Terraform Apply (App Runner: order-service)"
-        run: |
-          terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m -target='aws_apprunner_service.main_services["order-service"]'
-
-      - name: "Terraform Apply (App Runner: user-service)"
-        run: |
-          terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m -target='aws_apprunner_service.main_services["user-service"]'
-
-      - name: "Terraform Apply (remaining resources)"
+      - name: Terraform Apply (all resources)
         run: |
           terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m
 
@@ -115,8 +99,12 @@ jobs:
         run: |
           set -e
           echo "Setting retention to 14 days for App Runner log groups"
-          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/madeinworld-" --query 'logGroups[].logGroupName' --output text || true)
+          groups=$(aws logs describe-log-groups --log-group-name-prefix "/aws/apprunner/madeinworld-" --query 'logGroups[].logGroupName' --output text)
+          if [ -z "$groups" ]; then
+            echo "No matching App Runner log groups found" >&2
+            exit 1
+          fi
           for g in $groups; do
             echo "Applying retention on $g"
-            aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14 || true
+            aws logs put-retention-policy --log-group-name "$g" --retention-in-days 14
           done

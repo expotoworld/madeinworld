@@ -1,0 +1,90 @@
+name: Unlock Terraform State (App Runner)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: unlock-tf-state
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  unlock:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform/app_runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Export env
+        shell: bash
+        run: |
+          echo "IAM_ROLE_ARN=${{ secrets.IAM_ROLE_ARN }}" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $GITHUB_ENV
+          echo "TF_STATE_BUCKET=${{ secrets.TF_STATE_BUCKET }}" >> $GITHUB_ENV
+          echo "TF_LOCK_TABLE=${{ secrets.TF_LOCK_TABLE }}" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+
+      - name: Terraform Init (S3 backend)
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          terraform init -input=false -migrate-state \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=app_runner/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}"
+
+      - name: Detect lock and extract Lock ID
+        id: detect
+        shell: bash
+        run: |
+          set +e
+          echo "Attempting plan with 10s lock timeout to detect lock..."
+          out=$(terraform plan -input=false -no-color -lock-timeout=10s 2>&1)
+          status=$?
+          echo "$out" > ../plan_output.txt
+          echo "plan-exit=$status" >> $GITHUB_OUTPUT
+          if echo "$out" | grep -q "Error acquiring the state lock"; then
+            echo "Lock detected"
+            # Try to extract 'ID: <value>' from the lock info
+            id=$(echo "$out" | sed -n 's/.*ID: \([^ ]*\).*/\1/p' | head -n1)
+            if [ -z "$id" ]; then
+              id=$(echo "$out" | awk '/Lock Info/{f=1} f && /ID:/{print $2; exit}')
+            fi
+            echo "LOCK_ID=$id" >> $GITHUB_ENV
+            echo "lock-id=$id" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "No active lock found"
+            echo "lock-id=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+      - name: Force unlock (if lock present)
+        if: steps.detect.outputs.lock-id != ''
+        run: |
+          echo "Forcing unlock for ID: $LOCK_ID"
+          terraform force-unlock -force "$LOCK_ID"
+
+      - name: Show result
+        run: |
+          echo "Lock ID: ${LOCK_ID:-<none>}"
+          echo "Done."

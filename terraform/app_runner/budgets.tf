@@ -1,30 +1,33 @@
-# CloudWatch cost guard: monthly budget and email alerts
+// AWS Budgets for Amazon CloudWatch (monthly) with email alerts at >80% ACTUAL and FORECASTED
+// Note: Budgets API is only available in us-east-1
 
 resource "aws_budgets_budget" "cloudwatch_monthly" {
-  name              = "cloudwatch-monthly-budget"
-  budget_type       = "COST"
-  time_unit         = "MONTHLY"
+  provider    = aws.us_east_1
+  name        = "cloudwatch-monthly"
+  budget_type = "COST"
 
-  limit_amount      = "5"       # USD
-  limit_unit        = "USD"
+  limit_amount = 10
+  limit_unit   = "USD"
+
+  time_unit = "MONTHLY"
 
   cost_filters = {
     Service = ["Amazon CloudWatch"]
   }
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
+    comparison_operator = "GREATER_THAN"
+    threshold           = 80
+    threshold_type      = "PERCENTAGE"
+    notification_type   = "FORECASTED"
     subscriber_email_addresses = ["expotobsrl@gmail.com"]
   }
 
   notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "FORECASTED"
+    comparison_operator = "GREATER_THAN"
+    threshold           = 80
+    threshold_type      = "PERCENTAGE"
+    notification_type   = "ACTUAL"
     subscriber_email_addresses = ["expotobsrl@gmail.com"]
   }
 }

@@ -1,0 +1,47 @@
+name: Cleanup CloudWatch Synthetics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Delete all CloudWatch Synthetics canaries in region
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -e
+          REGION="${AWS_REGION:-eu-central-1}"
+          echo "Listing canaries in $REGION"
+          NAMES=$(aws synthetics list-canaries --region "$REGION" --query 'Canaries[].Name' --output text || true)
+          if [ -z "$NAMES" ] || [ "$NAMES" = "None" ]; then
+            echo "No canaries found"
+            exit 0
+          fi
+          echo "Found canaries: $NAMES"
+          # Stop first (ignore errors if already stopped)
+          for name in $NAMES; do
+            echo "Stopping $name"
+            aws synthetics stop-canary --name "$name" --region "$REGION" || true
+          done
+          # Delete all
+          for name in $NAMES; do
+            echo "Deleting $name"
+            aws synthetics delete-canary --name "$name" --region "$REGION" || true
+          done
+          echo "Cleanup complete."
+

@@ -87,9 +87,10 @@ jobs:
         shell: bash
         run: |
           set -e
-          ARN=$(aws ce describe-anomaly-monitors --monitor-types DIMENSIONAL --max-results 100 \
+          ARN=$(aws ce describe-anomaly-monitors --monitor-types DIMENSIONAL --max-results 100 --region us-east-1 \
             --query "AnomalyMonitors[?MonitorType=='DIMENSIONAL' && MonitorDimension=='SERVICE'].MonitorArn | [0]" \
             --output text || true)
+          echo "Describe monitors returned: $ARN"
           if [ -n "$ARN" ] && [ "$ARN" != "None" ]; then
             echo "Found existing CE SERVICE monitor: $ARN"
             echo "TF_VAR_ce_monitor_arn=$ARN" >> $GITHUB_ENV

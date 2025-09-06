@@ -21,3 +21,8 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+
+# Prevent committing env files used only locally
+.env
+.env.example

@@ -36,8 +36,25 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // Add manifest placeholders for API keys
+        // Add manifest placeholders for API keys and app name (overridden per flavor)
         manifestPlaceholders["MAPS_API_KEY"] = properties.getProperty("MAPS_API_KEY") ?: ""
+        manifestPlaceholders["APP_NAME"] = "Made in World"
+    }
+
+    // Define flavors for easy environment switching
+    flavorDimensions += listOf("env")
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            manifestPlaceholders["APP_NAME"] = "Made in World Dev"
+        }
+        create("prod") {
+            dimension = "env"
+            // No suffix for production
+            manifestPlaceholders["APP_NAME"] = "Made in World"
+        }
     }
 
     buildTypes {

@@ -1,0 +1,43 @@
+name: Verify CloudWatch Synthetics Canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Verify canary exists and is scheduled daily
+        env:
+          REGION: ${{ secrets.AWS_REGION }}
+          EXPECTED_NAME: "madeinworld-auth-ready"
+          EXPECTED_EXPR: "cron(0 0 * * ? *)"
+        run: |
+          set -euo pipefail
+          echo "Verifying $EXPECTED_NAME in $REGION with schedule $EXPECTED_EXPR"
+          FOUND=$(aws synthetics list-canaries --region "$REGION" --query "Canaries[?Name=='$EXPECTED_NAME'].Name" --output text || true)
+          if [ -z "$FOUND" ] || [ "$FOUND" = "None" ]; then
+            echo "ERROR: Expected canary $EXPECTED_NAME not found"
+            exit 1
+          fi
+          EXPR=$(aws synthetics get-canary --name "$EXPECTED_NAME" --region "$REGION" --query 'Canary.Schedule.Expression' --output text)
+          echo "Found schedule: $EXPR"
+          if [ "$EXPR" != "$EXPECTED_EXPR" ]; then
+            echo "ERROR: Schedule mismatch. Expected $EXPECTED_EXPR, got $EXPR"
+            exit 1
+          fi
+          echo "OK: Canary exists with expected daily schedule"
+

@@ -21,3 +21,10 @@ terraform {
 provider "aws" {
   region = var.aws_region
 }
+
+
+# Budgets is a global service (us-east-1)
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}

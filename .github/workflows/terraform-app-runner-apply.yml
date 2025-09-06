@@ -63,7 +63,6 @@ jobs:
 
 
 
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -84,7 +83,19 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-
+      - name: Detect existing CE Service monitor (sets TF_VAR_ce_monitor_arn if found)
+        shell: bash
+        run: |
+          set -e
+          ARN=$(aws ce describe-anomaly-monitors --monitor-types DIMENSIONAL --max-results 100 \
+            --query "AnomalyMonitors[?MonitorType=='DIMENSIONAL' && MonitorDimension=='SERVICE'].MonitorArn | [0]" \
+            --output text || true)
+          if [ -n "$ARN" ] && [ "$ARN" != "None" ]; then
+            echo "Found existing CE SERVICE monitor: $ARN"
+            echo "TF_VAR_ce_monitor_arn=$ARN" >> $GITHUB_ENV
+          else
+            echo "No existing CE SERVICE monitor found; Terraform will create one."
+          fi
 
       - name: Terraform Plan
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m

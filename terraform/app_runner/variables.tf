@@ -92,3 +92,11 @@ resource "null_resource" "validate_email_trio" {
     }
   }
 }
+
+# Optional: Use an existing Cost Explorer DIMENSIONAL SERVICE anomaly monitor by ARN
+# If empty, Terraform will attempt to create a new monitor (subject to AWS account limits)
+variable "ce_monitor_arn" {
+  description = "Existing Cost Explorer anomaly monitor ARN to use (DIMENSIONAL SERVICE). Leave empty to create one."
+  type        = string
+  default     = ""
+}

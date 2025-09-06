@@ -20,14 +20,6 @@ jobs:
           role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: List canaries (debug)
-        env:
-          REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          set -euo pipefail
-          echo "Listing canaries in $REGION"
-          aws synthetics describe-canaries --region "$REGION" --query 'Canaries[].Name' --output text || true
-
       - name: Verify canary exists and is scheduled daily
         env:
           REGION: ${{ secrets.AWS_REGION }}
@@ -36,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Verifying $EXPECTED_NAME in $REGION with schedule $EXPECTED_EXPR"
-          FOUND=$(aws synthetics describe-canaries --region "$REGION" --query "Canaries[?Name=='$EXPECTED_NAME'].Name" --output text || true)
+          FOUND=$(aws synthetics list-canaries --region "$REGION" --query "Canaries[?Name=='$EXPECTED_NAME'].Name" --output text || true)
           if [ -z "$FOUND" ] || [ "$FOUND" = "None" ]; then
             echo "ERROR: Expected canary $EXPECTED_NAME not found"
             exit 1

@@ -198,6 +198,7 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 
 	// Get product ID from URL
 	idStr := c.Param("id")
+
 	productID, err := strconv.Atoi(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID format"})
@@ -727,7 +728,7 @@ func (h *Handler) GetCategories(c *gin.Context) {
 		query = `
             SELECT
                 c.category_id, c.name, c.store_type_association, c.mini_app_association,
-                c.store_id, c.display_order, c.is_active, c.created_at, c.updated_at,
+                c.store_id, c.display_order, c.is_active, c.image_url, c.created_at, c.updated_at,
                 s.name as store_name, s.city as store_city, s.latitude as store_latitude,
                 s.longitude as store_longitude, s.type as store_type
             FROM product_categories c
@@ -737,7 +738,7 @@ func (h *Handler) GetCategories(c *gin.Context) {
 		query = `
             SELECT
                 category_id, name, store_type_association, mini_app_association,
-                store_id, display_order, is_active, created_at, updated_at
+                store_id, display_order, is_active, image_url, created_at, updated_at
             FROM product_categories
         `
 	}
@@ -809,6 +810,7 @@ func (h *Handler) GetCategories(c *gin.Context) {
 				&category.StoreID,
 				&category.DisplayOrder,
 				&category.IsActive,
+				&category.ImageURL,
 				&category.CreatedAt,
 				&category.UpdatedAt,
 				&category.StoreName,
@@ -831,6 +833,7 @@ func (h *Handler) GetCategories(c *gin.Context) {
 				&category.StoreID,
 				&category.DisplayOrder,
 				&category.IsActive,
+				&category.ImageURL,
 				&category.CreatedAt,
 				&category.UpdatedAt,
 			)
@@ -1179,7 +1182,11 @@ func (h *Handler) uploadToS3(ctx context.Context, productID int, fileHeader *mul
 	file.Seek(0, 0)
 
 	// Set up AWS S3 Client using default credential chain (App Runner instance role in AWS)
-	cfg, err := config.LoadDefaultConfig(ctx)
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "eu-central-1" // default to Frankfurt
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS default config: %w", err)
 	}
@@ -1199,6 +1206,35 @@ func (h *Handler) uploadToS3(ctx context.Context, productID int, fileHeader *mul
 	}
 
 	// Construct URL
+	imageURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucketName, cfg.Region, objectKey)
+	return imageURL, nil
+}
+
+// uploadGenericToS3 uploads a file stream to the given S3 key and returns a public URL
+func (h *Handler) uploadGenericToS3(ctx context.Context, objectKey string, file multipart.File) (string, error) {
+	// Reset file pointer
+	file.Seek(0, 0)
+
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = "eu-central-1"
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return "", fmt.Errorf("failed to load AWS default config: %w", err)
+	}
+	s3Client := s3.NewFromConfig(cfg)
+
+	bucketName := "madeinworld-product-images-admin"
+	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &bucketName,
+		Key:    &objectKey,
+		Body:   file,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to upload file to S3: %w", err)
+	}
+
 	imageURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucketName, cfg.Region, objectKey)
 	return imageURL, nil
 }
@@ -1844,7 +1880,7 @@ func (h *Handler) DeleteStore(c *gin.Context) {
 	}
 }
 
-// UploadSubcategoryImage handles POST /subcategories/:id/image
+// UploadSubcategoryImage handles POST /subcategories/:id/image (S3 storage)
 func (h *Handler) UploadSubcategoryImage(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -1865,19 +1901,15 @@ func (h *Handler) UploadSubcategoryImage(c *gin.Context) {
 		return
 	}
 
-	// Generate unique filename
-	filename := fmt.Sprintf("subcategory_%s_%d_%s", subcategoryID, time.Now().Unix(), header.Filename)
-	filepath := fmt.Sprintf("uploads/subcategories/%s", filename)
-
-	// Save file to disk
-	if err := saveUploadedFile(file, filepath); err != nil {
-		log.Printf("Failed to save subcategory image: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image"})
+	// Upload to S3
+	imageURL, err := h.uploadGenericToS3(ctx, fmt.Sprintf("subcategories/%s/%d_%s", subcategoryID, time.Now().Unix(), header.Filename), file)
+	if err != nil {
+		log.Printf("Failed to upload subcategory image to S3: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
 		return
 	}
 
 	// Update subcategory with image URL
-	imageURL := fmt.Sprintf("/uploads/subcategories/%s", filename)
 	query := `
         UPDATE subcategories
         SET image_url = $2, updated_at = CURRENT_TIMESTAMP
@@ -1900,7 +1932,7 @@ func (h *Handler) UploadSubcategoryImage(c *gin.Context) {
 	})
 }
 
-// UploadStoreImage handles POST /stores/:id/image
+// UploadStoreImage handles POST /stores/:id/image (S3 storage)
 func (h *Handler) UploadStoreImage(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -1921,19 +1953,15 @@ func (h *Handler) UploadStoreImage(c *gin.Context) {
 		return
 	}
 
-	// Generate unique filename
-	filename := fmt.Sprintf("store_%s_%d_%s", storeID, time.Now().Unix(), header.Filename)
-	filepath := fmt.Sprintf("uploads/stores/%s", filename)
-
-	// Save file to disk
-	if err := saveUploadedFile(file, filepath); err != nil {
-		log.Printf("Failed to save store image: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image"})
+	// Upload to S3
+	imageURL, err := h.uploadGenericToS3(ctx, fmt.Sprintf("stores/%s/%d_%s", storeID, time.Now().Unix(), header.Filename), file)
+	if err != nil {
+		log.Printf("Failed to upload store image to S3: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
 		return
 	}
 
 	// Update store with image URL
-	imageURL := fmt.Sprintf("/uploads/stores/%s", filename)
 	query := `
         UPDATE stores
         SET image_url = $2, updated_at = CURRENT_TIMESTAMP
@@ -2004,6 +2032,7 @@ func (h *Handler) UploadProductImages(c *gin.Context) {
 	productIDStr := c.Param("id")
 	productID, err := strconv.Atoi(productIDStr)
 	if err != nil {
+
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
 		return
 	}
@@ -2283,4 +2312,52 @@ func (h *Handler) deleteProductImage(ctx context.Context, productID, imageID int
 // setPrimaryImage sets an image as primary
 func (h *Handler) setPrimaryImage(ctx context.Context, productID, imageID int) error {
 	return h.db.SetPrimaryImage(ctx, productID, imageID)
+}
+
+// UploadCategoryImage handles POST /categories/:id/image (S3 storage)
+func (h *Handler) UploadCategoryImage(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	categoryID := c.Param("id")
+
+	file, header, err := c.Request.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No image file provided"})
+		return
+	}
+	defer file.Close()
+
+	if !isValidImageType(header.Header.Get("Content-Type")) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image type. Only JPEG, PNG, and WebP are allowed"})
+		return
+	}
+
+	imageURL, err := h.uploadGenericToS3(ctx, fmt.Sprintf("categories/%s/%d_%s", categoryID, time.Now().Unix(), header.Filename), file)
+	if err != nil {
+		log.Printf("Failed to upload category image to S3: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
+		return
+	}
+
+	query := `
+        UPDATE product_categories
+        SET image_url = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE category_id = $1
+        RETURNING updated_at
+    `
+
+	var updatedAt time.Time
+	err = h.db.Pool.QueryRow(ctx, query, categoryID, imageURL).Scan(&updatedAt)
+	if err != nil {
+		log.Printf("Failed to update category image URL: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Image uploaded successfully",
+		"image_url":  imageURL,
+		"updated_at": updatedAt,
+	})
 }

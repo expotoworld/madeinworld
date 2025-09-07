@@ -1189,11 +1189,6 @@ func (h *Handler) uploadToS3(ctx context.Context, productID int, fileHeader *mul
 	if region == "" {
 		region = "eu-central-1" // default to Frankfurt
 	}
-	// Ensure we use container/instance credentials, not SES SMTP env vars that may be present
-	_ = os.Unsetenv("AWS_ACCESS_KEY_ID")
-	_ = os.Unsetenv("AWS_SECRET_ACCESS_KEY")
-	_ = os.Unsetenv("AWS_SESSION_TOKEN")
-
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS default config: %w", err)
@@ -1230,11 +1225,6 @@ func (h *Handler) uploadGenericToS3(ctx context.Context, objectKey string, file 
 	if region == "" {
 		region = "eu-central-1"
 	}
-	// Ensure we use container/instance credentials, not SES SMTP env vars that may be present
-	_ = os.Unsetenv("AWS_ACCESS_KEY_ID")
-	_ = os.Unsetenv("AWS_SECRET_ACCESS_KEY")
-	_ = os.Unsetenv("AWS_SESSION_TOKEN")
-
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS default config: %w", err)

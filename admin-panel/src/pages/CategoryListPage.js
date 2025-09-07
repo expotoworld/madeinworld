@@ -84,6 +84,36 @@ const CategoryListPage = () => {
     { value: '展销商城', label: '展销商城', color: '#f38900', miniApp: '展销展消' },
   ];
 
+
+  const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
+  const resolveImageUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `${API_BASE}${url}`;
+  };
+
+  const handleCategoryImageUpload = async (categoryId, file) => {
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const response = await fetch(`${API_BASE}/api/v1/categories/${categoryId}/image`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        showToast('Category image uploaded successfully', 'success');
+        fetchCategories();
+      } else {
+        showToast('Failed to upload category image', 'error');
+      }
+    } catch (error) {
+      console.error('Error uploading category image:', error);
+      showToast('Error uploading category image', 'error');
+    }
+  };
+
   const getStoreTypeInfo = (type) => {
     return storeTypeOptions.find(opt => opt.value === type) || { color: '#666', miniApp: 'Unknown' };
   };
@@ -630,7 +660,9 @@ const CategoryListPage = () => {
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Box display="flex" alignItems="center" width="100%">
-                    <CategoryIcon sx={{ mr: 2, color: currentMiniApp.color }} />
+                    <Avatar src={resolveImageUrl(category.image_url)} sx={{ mr: 2, width: 40, height: 40 }}>
+                      <CategoryIcon />
+                    </Avatar>
                     <Box flexGrow={1}>
                       <Typography variant="h6">
                         {category.name}
@@ -641,6 +673,21 @@ const CategoryListPage = () => {
                       </Typography>
                     </Box>
 
+                    <Tooltip title="Upload Image">
+                      <IconButton size="small" component="label">
+                        <PhotoIcon />
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*"
+                          onChange={(e) => {
+                            if (e.target.files[0]) {
+                              handleCategoryImageUpload(category.id, e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </IconButton>
+                    </Tooltip>
                     <IconButton
                       size="small"
                       onClick={(e) => {
@@ -676,13 +723,13 @@ const CategoryListPage = () => {
                         Add Subcategory
                       </Button>
                     </Box>
-                    
+
                     {category.subcategories && category.subcategories.length > 0 ? (
                       <List>
                         {category.subcategories.map((subcategory) => (
                           <ListItem key={subcategory.id}>
                             <Avatar
-                              src={subcategory.image_url ? `${(process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com')}${subcategory.image_url}` : ''}
+                              src={resolveImageUrl(subcategory.image_url)}
                               sx={{ mr: 2, width: 40, height: 40 }}
                             >
                               <SubcategoryIcon />

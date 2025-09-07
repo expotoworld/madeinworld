@@ -60,20 +60,6 @@ resource "aws_apprunner_service" "main_services" {
   service_name                    = "${var.project}-${each.key}-dev"
   auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.default.arn
 
-  # Avoid Terraform fighting with CI image updates; ignore image tag/drift.
-  # TEMP: also ignore role/ASC/instance config changes to avoid App Runner UpdateService
-  # requiring iam:PassRole while we finalize IAM. Remove these ignores once PassRole
-  # is fully granted to the GitHub OIDC role and we want Terraform to manage these.
-  lifecycle {
-    ignore_changes = [
-      # keep image tag unmanaged by TF (CI updates images)
-      source_configuration[0].image_repository[0].image_identifier,
-      # avoid UpdateService until iam:PassRole is confirmed everywhere
-      source_configuration[0].authentication_configuration[0].access_role_arn,
-      instance_configuration,
-      auto_scaling_configuration_arn
-    ]
-  }
 
   source_configuration {
     authentication_configuration {

@@ -108,3 +108,10 @@ variable "create_ce_anomaly_monitor" {
   type        = bool
   default     = false
 }
+
+# Enable/disable the auth /live CloudWatch Synthetics canary
+variable "enable_auth_ready_canary" {
+  description = "Whether to create and run the CloudWatch Synthetics canary for auth /live."
+  type        = bool
+  default     = false
+}

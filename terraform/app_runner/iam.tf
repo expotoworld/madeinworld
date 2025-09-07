@@ -96,9 +96,12 @@ resource "aws_iam_role_policy_attachment" "apprunner_s3_put_attach" {
 # This fixes AccessDenied: iam:PassRole when Terraform updates App Runner services
 data "aws_iam_policy_document" "github_actions_passrole_doc" {
   statement {
-    effect    = "Allow"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.apprunner_ecr_access_role.arn]
+    effect  = "Allow"
+    actions = ["iam:PassRole"]
+    resources = [
+      aws_iam_role.apprunner_ecr_access_role.arn,
+      aws_iam_role.apprunner_instance_role.arn,
+    ]
   }
 }
 

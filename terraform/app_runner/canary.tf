@@ -13,23 +13,27 @@ data "aws_iam_role" "synthetics_role" {
 }
 
 resource "aws_iam_role_policy_attachment" "synthetics_full_access" {
+  count     = var.enable_auth_ready_canary ? 1 : 0
   role       = data.aws_iam_role.synthetics_role.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchSyntheticsFullAccess"
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  count     = var.enable_auth_ready_canary ? 1 : 0
   role       = data.aws_iam_role.synthetics_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_role_policy_attachment" "s3_rw" {
+  count     = var.enable_auth_ready_canary ? 1 : 0
   role       = data.aws_iam_role.synthetics_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
 
 resource "aws_iam_role_policy" "synthetics_putmetrics" {
-  name = "${var.project}-synthetics-putmetrics"
-  role = data.aws_iam_role.synthetics_role.name
+  count = var.enable_auth_ready_canary ? 1 : 0
+  name  = "${var.project}-synthetics-putmetrics"
+  role  = data.aws_iam_role.synthetics_role.name
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
@@ -40,8 +44,9 @@ resource "aws_iam_role_policy" "synthetics_putmetrics" {
   })
 }
 
-# Canary that polls auth-service /ready every 2 minutes
+# Canary that polls auth-service /ready (optional)
 resource "aws_synthetics_canary" "auth_ready" {
+  count                = var.enable_auth_ready_canary ? 1 : 0
   name                 = "${var.project}-auth-ready"
   artifact_s3_location = "s3://${data.aws_s3_bucket.synthetics_artifacts.bucket}"
   execution_role_arn   = data.aws_iam_role.synthetics_role.arn
@@ -75,4 +80,3 @@ variable "canary_schedule_expression" {
   # Use a cron expression to run daily at 00:00 UTC; aligns with cost optimization
   default     = "cron(0 0 * * ? *)"
 }
-

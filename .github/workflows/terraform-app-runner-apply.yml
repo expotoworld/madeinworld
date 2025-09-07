@@ -59,6 +59,8 @@ jobs:
           # Force a safe daily schedule regardless of org/repo secrets to avoid accidental cost spikes
           echo "TF_VAR_canary_schedule_expression=cron(0 0 * * ? *)" >> $GITHUB_ENV
           echo "TF_VAR_create_ce_anomaly_monitor=false" >> $GITHUB_ENV
+          # Disable the canary by default to avoid cost/noise
+          echo "TF_VAR_enable_auth_ready_canary=false" >> $GITHUB_ENV
 
 
 

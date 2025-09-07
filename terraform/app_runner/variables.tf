@@ -94,9 +94,17 @@ resource "null_resource" "validate_email_trio" {
 }
 
 # Optional: Use an existing Cost Explorer DIMENSIONAL SERVICE anomaly monitor by ARN
-# If empty, Terraform will attempt to create a new monitor (subject to AWS account limits)
+# By default, we DO NOT create a new monitor to avoid hitting account limits.
 variable "ce_monitor_arn" {
-  description = "Existing Cost Explorer anomaly monitor ARN to use (DIMENSIONAL SERVICE). Leave empty to create one."
+  description = "Existing Cost Explorer anomaly monitor ARN to use (DIMENSIONAL SERVICE)."
   type        = string
   default     = ""
+}
+
+# Explicit opt-in to create a DIMENSIONAL SERVICE anomaly monitor if none exists.
+# This should remain false in CI; enable only when you intend to create a new monitor.
+variable "create_ce_anomaly_monitor" {
+  description = "Whether to create a new Cost Explorer DIMENSIONAL SERVICE anomaly monitor if ce_monitor_arn is empty."
+  type        = bool
+  default     = false
 }

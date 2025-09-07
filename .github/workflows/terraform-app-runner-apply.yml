@@ -58,6 +58,7 @@ jobs:
           echo "TF_VAR_ses_from_email=${{ secrets.SES_FROM_EMAIL }}" >> $GITHUB_ENV
           # Force a safe daily schedule regardless of org/repo secrets to avoid accidental cost spikes
           echo "TF_VAR_canary_schedule_expression=cron(0 0 * * ? *)" >> $GITHUB_ENV
+          echo "TF_VAR_create_ce_anomaly_monitor=false" >> $GITHUB_ENV
 
 
 
@@ -87,15 +88,16 @@ jobs:
         shell: bash
         run: |
           set -e
-          ARN=$(aws ce describe-anomaly-monitors --monitor-types DIMENSIONAL --max-results 100 --region us-east-1 \
+          ARN=$(aws ce get-anomaly-monitors --monitor-types DIMENSIONAL --max-results 100 --region us-east-1 \
             --query "AnomalyMonitors[?MonitorType=='DIMENSIONAL' && MonitorDimension=='SERVICE'].MonitorArn | [0]" \
             --output text || true)
-          echo "Describe monitors returned: $ARN"
+          echo "Get monitors returned: $ARN"
           if [ -n "$ARN" ] && [ "$ARN" != "None" ]; then
             echo "Found existing CE SERVICE monitor: $ARN"
             echo "TF_VAR_ce_monitor_arn=$ARN" >> $GITHUB_ENV
           else
-            echo "No existing CE SERVICE monitor found; Terraform will create one."
+            echo "No existing CE SERVICE monitor found; Terraform will NOT create one by default."
+            echo "TF_VAR_create_ce_anomaly_monitor=false" >> $GITHUB_ENV
           fi
 
       - name: Terraform Plan

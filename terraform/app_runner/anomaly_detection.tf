@@ -1,9 +1,10 @@
 // AWS Cost Anomaly Detection for Amazon CloudWatch service
 // Note: Cost Explorer/Anomaly Detection API is in us-east-1
 
-# If an existing DIMENSIONAL SERVICE monitor ARN is provided, skip creating a new monitor
+# If an existing DIMENSIONAL SERVICE monitor ARN is provided, skip creating a new monitor.
+# Only create when explicitly enabled to avoid hitting account-wide limits.
 resource "aws_ce_anomaly_monitor" "cloudwatch_service" {
-  count             = var.ce_monitor_arn == "" ? 1 : 0
+  count             = (var.create_ce_anomaly_monitor && var.ce_monitor_arn == "") ? 1 : 0
   provider          = aws.us_east_1
   name              = "cloudwatch-service-monitor"
   monitor_type      = "DIMENSIONAL"
@@ -15,7 +16,9 @@ locals {
   resolved_ce_monitor_arn = var.ce_monitor_arn != "" ? var.ce_monitor_arn : (length(aws_ce_anomaly_monitor.cloudwatch_service) > 0 ? aws_ce_anomaly_monitor.cloudwatch_service[0].arn : "")
 }
 
+# Create subscription only when a monitor ARN is available
 resource "aws_ce_anomaly_subscription" "cloudwatch_alerts" {
+  count     = local.resolved_ce_monitor_arn != "" ? 1 : 0
   provider  = aws.us_east_1
   name      = "cloudwatch-anomaly-alerts"
   frequency = "DAILY"

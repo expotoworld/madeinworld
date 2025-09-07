@@ -61,9 +61,9 @@ USER appuser
 # Expose port 8082
 EXPOSE 8082
 
-# Health check
+# Health check (liveness-only, avoid DB ping)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8082/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8082/live || exit 1
 
 # Run the application
 CMD ["./order-service"]

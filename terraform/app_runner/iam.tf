@@ -90,3 +90,25 @@ resource "aws_iam_role_policy_attachment" "apprunner_s3_put_attach" {
   role       = aws_iam_role.apprunner_instance_role.name
   policy_arn = aws_iam_policy.apprunner_s3_put_policy.arn
 }
+
+
+# Allow GitHub Actions OIDC role to pass the App Runner ECR access role during updates
+# This fixes AccessDenied: iam:PassRole when Terraform updates App Runner services
+data "aws_iam_policy_document" "github_actions_passrole_doc" {
+  statement {
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.apprunner_ecr_access_role.arn]
+  }
+}
+
+resource "aws_iam_policy" "github_actions_passrole" {
+  name        = "${var.project}-github-actions-pass-apprunner-ecr-role"
+  description = "Allow GitHub Actions role to pass App Runner ECR access role"
+  policy      = data.aws_iam_policy_document.github_actions_passrole_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_passrole_attach" {
+  role       = "GitHubActions-MadeInWorld-Role"
+  policy_arn = aws_iam_policy.github_actions_passrole.arn
+}

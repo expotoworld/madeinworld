@@ -187,6 +187,7 @@ type Category struct {
 	StoreID              *int             `json:"store_id" db:"store_id"`
 	DisplayOrder         int              `json:"display_order" db:"display_order"`
 	IsActive             bool             `json:"is_active" db:"is_active"`
+	ImageURL             *string          `json:"image_url" db:"image_url"`
 	Subcategories        []Subcategory    `json:"subcategories,omitempty"`
 	// Store information (populated when store_id is not null)
 	StoreName      *string    `json:"store_name,omitempty"`

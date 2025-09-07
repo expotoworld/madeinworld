@@ -44,8 +44,9 @@ resource "aws_iam_role_policy" "synthetics_putmetrics" {
   })
 }
 
-# Canary that polls auth-service /ready. We keep it present to avoid requiring DeleteCanary permission; schedule is safe (daily).
+# Canary that polls auth-service /ready (optional)
 resource "aws_synthetics_canary" "auth_ready" {
+  count                = var.enable_auth_ready_canary ? 1 : 0
   name                 = "${var.project}-auth-ready"
   artifact_s3_location = "s3://${data.aws_s3_bucket.synthetics_artifacts.bucket}"
   execution_role_arn   = data.aws_iam_role.synthetics_role.arn

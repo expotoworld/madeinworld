@@ -95,7 +95,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.id
+		LEFT JOIN users u ON o.user_id = u.user_id
 		LEFT JOIN stores s ON o.store_id = s.store_id
 		%s
 	`, whereClause)
@@ -110,20 +110,20 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	offset := (req.Page - 1) * req.Limit
 	query := fmt.Sprintf(`
 		SELECT
-			o.id,
+			o.order_id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
-			COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.username) as user_name,
+			COALESCE(u.full_name, '') as user_name,
 			o.mini_app_type,
 			o.store_id,
 			COALESCE(s.name, '') as store_name,
 			o.total_amount,
 			o.status,
-			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count,
+			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
 			o.created_at,
 			o.updated_at
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.id
+		LEFT JOIN users u ON o.user_id = u.user_id
 		LEFT JOIN stores s ON o.store_id = s.store_id
 		%s
 		%s
@@ -174,22 +174,22 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 	// Get order details
 	query := `
 		SELECT
-			o.id,
+			o.order_id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
-			COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.username) as user_name,
+			COALESCE(u.full_name, '') as user_name,
 			o.mini_app_type,
 			o.store_id,
 			COALESCE(s.name, '') as store_name,
 			o.total_amount,
 			o.status,
-			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count,
+			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
 			o.created_at,
 			o.updated_at
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.id
+		LEFT JOIN users u ON o.user_id = u.user_id
 		LEFT JOIN stores s ON o.store_id = s.store_id
-		WHERE o.id = $1
+		WHERE o.order_id = $1
 	`
 
 	var order models.AdminOrderResponse

@@ -52,8 +52,9 @@ WORKDIR /app
 # Copy the binary from builder stage
 COPY --from=builder /app/catalog-service .
 
-# Change ownership to non-root user
-RUN chown appuser:appgroup /app/catalog-service
+# Prepare writable uploads directory for image uploads
+RUN mkdir -p /app/uploads \
+  && chown -R appuser:appgroup /app /app/uploads
 
 # Switch to non-root user
 USER appuser

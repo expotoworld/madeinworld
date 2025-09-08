@@ -459,6 +459,11 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 	expirationMinutes := getEnvInt("CODE_EXPIRATION_MINUTES", 10)
 	expiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
 
+	// Opportunistic cleanup before creating a new code (best effort)
+	if cleanErr := h.DB.CleanupExpiredUserCodes(ctx); cleanErr != nil {
+		fmt.Printf("[USER_AUTH] Cleanup before user code creation failed: %v\n", cleanErr)
+	}
+
 	// Store verification code in database
 	verificationCode, err := h.DB.CreateUserVerificationCode(ctx, req.Email, string(codeHash), clientIP, expiresAt)
 	if err != nil {
@@ -498,6 +503,11 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 	// Security logging - success
 	fmt.Printf("[USER_AUTH] Verification code sent successfully to %s from IP: %s\n",
 		req.Email, clientIP)
+
+	// Opportunistic cleanup after successful send (best effort)
+	if cleanErr := h.DB.CleanupExpiredUserCodes(ctx); cleanErr != nil {
+		fmt.Printf("[USER_AUTH] Cleanup after user code send failed: %v\n", cleanErr)
+	}
 
 	// Return success response
 	c.JSON(http.StatusOK, models.SendUserVerificationResponse{

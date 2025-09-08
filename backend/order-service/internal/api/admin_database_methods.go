@@ -89,7 +89,12 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM orders o
+
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
+
 
 
 
@@ -110,7 +115,11 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
+
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
+
+
+
 			o.mini_app_type,
 
 			o.total_amount,
@@ -119,7 +128,12 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.created_at,
 			o.updated_at
 		FROM orders o
+
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
+
 
 
 
@@ -175,7 +189,11 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
+
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
+=======
+
+
 			o.mini_app_type,
 			o.total_amount,
 			o.status,
@@ -183,6 +201,7 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.created_at,
 			o.updated_at
 		FROM orders o
+
 		LEFT JOIN users u ON o.user_id = u.id
 
 
@@ -193,6 +212,11 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 		WHERE o.id = $1
 
 
+
+
+
+
+		WHERE o.id = $1
 
 	`
 

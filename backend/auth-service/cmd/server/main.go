@@ -10,7 +10,6 @@ import (
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/api"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/db"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/logging"
-	"github.com/expomadeinworld/madeinworld/auth-service/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -45,13 +44,9 @@ func main() {
 	// Initialize handlers (DB may be nil; /ready will report accordingly)
 	handler := api.NewHandler(database)
 
-	// Initialize cleanup service (runs every 30 minutes) only if DB is available
-	if database != nil {
-		cleanupService := services.NewCleanupService(database, 30)
-		cleanupService.Start()
-		defer cleanupService.Stop()
-	} else {
-		log.Println("[WARN] Skipping cleanup service start; database unavailable at startup")
+	// Periodic cleanup disabled: we now perform opportunistic cleanup during auth requests
+	if database == nil {
+		log.Println("[WARN] Database unavailable at startup; readiness will report accordingly")
 	}
 
 	// Set up Gin router

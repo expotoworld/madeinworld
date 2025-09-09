@@ -90,6 +90,10 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 		SELECT COUNT(*)
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
+
 		%s
 	`, whereClause)
 
@@ -116,6 +120,10 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.updated_at
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
+
 
 		%s
 		%s
@@ -176,6 +184,10 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.updated_at
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
+
 
 		WHERE o.order_id = $1
 	`

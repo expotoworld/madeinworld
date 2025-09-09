@@ -249,7 +249,7 @@ func (h *Handler) updateOrderStatus(ctx context.Context, orderID string, newStat
 
 	// Update order status
 	_, err = tx.Exec(ctx,
-		"UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+		"UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE order_id = $2",
 		newStatus, orderID)
 	if err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)

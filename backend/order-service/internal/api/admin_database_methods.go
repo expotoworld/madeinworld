@@ -17,7 +17,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	argIndex := 1
 
 	if req.OrderID != "" {
-		whereConditions = append(whereConditions, fmt.Sprintf("o.order_id::text ILIKE $%d", argIndex))
+		whereConditions = append(whereConditions, fmt.Sprintf("o.id::text ILIKE $%d", argIndex))
 		args = append(args, "%"+req.OrderID+"%")
 		argIndex++
 	}
@@ -53,7 +53,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	}
 
 	if req.Search != "" {
-		searchCondition := fmt.Sprintf("(o.order_id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
+		searchCondition := fmt.Sprintf("(o.id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
 		whereConditions = append(whereConditions, searchCondition)
 		args = append(args, "%"+req.Search+"%")
 		argIndex++
@@ -107,7 +107,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	offset := (req.Page - 1) * req.Limit
 	query := fmt.Sprintf(`
 		SELECT
-			o.order_id,
+			o.id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
@@ -115,7 +115,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 
 			o.total_amount,
 			o.status,
-			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
+			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count,
 			o.created_at,
 			o.updated_at
 		FROM orders o
@@ -172,14 +172,14 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 	// Get order details
 	query := `
 		SELECT
-			o.order_id,
+			o.id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
 			o.mini_app_type,
 			o.total_amount,
 			o.status,
-			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
+			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count,
 			o.created_at,
 			o.updated_at
 		FROM orders o
@@ -189,7 +189,7 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 
-		WHERE o.order_id = $1
+		WHERE o.id = $1
 	`
 
 	var order models.AdminOrderResponse
@@ -237,7 +237,7 @@ func (h *Handler) updateOrderStatus(ctx context.Context, orderID string, newStat
 
 	// Get current status
 	var currentStatus models.OrderStatus
-	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = $1", orderID).Scan(&currentStatus)
+	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE id = $1", orderID).Scan(&currentStatus)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("order not found")
@@ -247,7 +247,7 @@ func (h *Handler) updateOrderStatus(ctx context.Context, orderID string, newStat
 
 	// Update order status
 	_, err = tx.Exec(ctx,
-		"UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE order_id = $2",
+		"UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
 		newStatus, orderID)
 	if err != nil {
 		return fmt.Errorf("failed to update order status: %w", err)

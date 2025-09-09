@@ -104,6 +104,9 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 
 
 
+
+
+
 		%s
 	`, whereClause)
 
@@ -140,6 +143,9 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 
 
 		LEFT JOIN users u ON o.user_id = u.id
+
+
+
 
 
 
@@ -206,11 +212,11 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
-=======
 
 
 
-			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
+
+
 
 			o.mini_app_type,
 			o.total_amount,
@@ -228,16 +234,20 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 
+
+		WHERE o.id = $1
+
+
+
+
+
+
 		WHERE o.id = $1
 
 
 
 
-
-
 		WHERE o.id = $1
-
-
 
 
 		WHERE o.id = $1

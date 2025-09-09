@@ -95,7 +95,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.user_id
+		LEFT JOIN users u ON o.user_id = u.id
 		LEFT JOIN stores s ON o.store_id = s.store_id
 		%s
 	`, whereClause)
@@ -113,7 +113,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.order_id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
-			COALESCE(u.full_name, '') as user_name,
+			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
 			o.mini_app_type,
 			o.store_id,
 			COALESCE(s.name, '') as store_name,
@@ -123,7 +123,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.created_at,
 			o.updated_at
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.user_id
+		LEFT JOIN users u ON o.user_id = u.id
 		LEFT JOIN stores s ON o.store_id = s.store_id
 		%s
 		%s
@@ -177,7 +177,7 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.order_id,
 			o.user_id,
 			COALESCE(u.email, '') as user_email,
-			COALESCE(u.full_name, '') as user_name,
+			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
 			o.mini_app_type,
 			o.store_id,
 			COALESCE(s.name, '') as store_name,
@@ -187,7 +187,7 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.created_at,
 			o.updated_at
 		FROM orders o
-		LEFT JOIN users u ON o.user_id = u.user_id
+		LEFT JOIN users u ON o.user_id = u.id
 		LEFT JOIN stores s ON o.store_id = s.store_id
 		WHERE o.order_id = $1
 	`
@@ -239,7 +239,7 @@ func (h *Handler) updateOrderStatus(ctx context.Context, orderID string, newStat
 
 	// Get current status
 	var currentStatus models.OrderStatus
-	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE id = $1", orderID).Scan(&currentStatus)
+	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = $1", orderID).Scan(&currentStatus)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("order not found")
@@ -430,7 +430,7 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(DISTINCT CONCAT(c.user_id::text, '-', c.mini_app_type))
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.user_id
+		LEFT JOIN users u ON c.user_id = u.id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		%s
 	`, whereClause)
@@ -457,7 +457,7 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 			MIN(c.created_at) as created_at,
 			MAX(c.updated_at) as updated_at
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.user_id
+		LEFT JOIN users u ON c.user_id = u.id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		LEFT JOIN stores s ON c.store_id = s.store_id
 		%s
@@ -528,7 +528,7 @@ func (h *Handler) getAdminCartByID(ctx context.Context, cartID string) (*models.
 			MIN(c.created_at) as created_at,
 			MAX(c.updated_at) as updated_at
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.user_id
+		LEFT JOIN users u ON c.user_id = u.id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		LEFT JOIN stores s ON c.store_id = s.store_id
 		WHERE c.user_id = $1 AND c.mini_app_type = $2

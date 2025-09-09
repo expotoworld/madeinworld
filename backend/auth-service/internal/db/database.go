@@ -282,6 +282,9 @@ func (db *Database) GetUserByEmail(ctx context.Context, email string) (*models.U
 	)
 
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, pgx.ErrNoRows
+		}
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
 
@@ -506,7 +509,7 @@ func (db *Database) IncrementRateLimit(ctx context.Context, ipAddress string) er
 	updateQuery := `
 		UPDATE admin_rate_limits
 		SET request_count = request_count + 1
-		WHERE ip_address = $1 AND window_start > date_trunc('hour', now())
+		WHERE ip_address = $1 AND window_start >= date_trunc('hour', now())
 	`
 
 	result, err := db.Pool.Exec(ctx, updateQuery, ipAddress)
@@ -716,7 +719,7 @@ func (db *Database) IncrementUserRateLimit(ctx context.Context, ipAddress string
 	updateQuery := `
 		UPDATE user_rate_limits
 		SET request_count = request_count + 1
-		WHERE ip_address = $1 AND window_start > date_trunc('hour', now())
+		WHERE ip_address = $1 AND window_start >= date_trunc('hour', now())
 	`
 
 	result, err := db.Pool.Exec(ctx, updateQuery, ipAddress)

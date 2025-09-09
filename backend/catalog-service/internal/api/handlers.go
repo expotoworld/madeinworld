@@ -15,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/expomadeinworld/madeinworld/catalog-service/internal/db"
 	"github.com/expomadeinworld/madeinworld/catalog-service/internal/models"
 	"github.com/gin-gonic/gin"
@@ -1894,6 +1895,83 @@ func (h *Handler) DeleteStore(c *gin.Context) {
 			"store_id": storeID,
 		})
 	}
+}
+
+// AdminCleanupS3 deletes all objects under the given prefixes. Guarded by X-Maintenance-Token.
+func (h *Handler) AdminCleanupS3(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	secret := os.Getenv("MAINTENANCE_TOKEN")
+	if secret == "" || c.GetHeader("X-Maintenance-Token") != secret {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	prefixesParam := c.Query("prefixes")
+	if prefixesParam == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "prefixes query param required (comma-separated)"})
+		return
+	}
+	prefixes := strings.Split(prefixesParam, ",")
+
+	region := os.Getenv("AWS_REGION")
+	if region == "" {
+		region = os.Getenv("AWS_DEFAULT_REGION")
+	}
+	if region == "" {
+		region = "eu-central-1"
+	}
+	_ = os.Unsetenv("AWS_ACCESS_KEY_ID")
+	_ = os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	_ = os.Unsetenv("AWS_SESSION_TOKEN")
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load AWS config", "details": err.Error()})
+		return
+	}
+	s3Client := s3.NewFromConfig(cfg)
+	bucketName := "madeinworld-product-images-admin"
+
+	deleted := 0
+	for _, p := range prefixes {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		var token *string
+		for {
+			out, err := s3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: &bucketName, Prefix: &p, ContinuationToken: token})
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "list failed", "prefix": p, "details": err.Error()})
+				return
+			}
+			if len(out.Contents) == 0 {
+				break
+			}
+			// batch delete up to 1000
+			var objs []s3types.ObjectIdentifier
+			for _, o := range out.Contents {
+				key := *o.Key
+				objs = append(objs, s3types.ObjectIdentifier{Key: &key})
+			}
+			if len(objs) > 0 {
+				_, err = s3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: &bucketName, Delete: &s3types.Delete{Objects: objs}})
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed", "prefix": p, "details": err.Error()})
+					return
+				}
+				deleted += len(objs)
+			}
+			if out.NextContinuationToken != nil {
+				token = out.NextContinuationToken
+				continue
+			}
+			break
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "cleanup complete", "deleted": deleted})
 }
 
 // UploadSubcategoryImage handles POST /subcategories/:id/image (S3 storage)

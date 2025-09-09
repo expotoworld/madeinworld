@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -42,6 +43,7 @@ func (h *Handler) GetAdminOrders(c *gin.Context) {
 	// Get orders with filtering
 	orders, total, err := h.getAdminOrders(ctx, &req)
 	if err != nil {
+		fmt.Printf("[ADMIN_ORDERS] query failed: err=%v req=%+v\n", err, req)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to get orders",
 			Message: err.Error(),
@@ -277,6 +279,7 @@ func (h *Handler) GetAdminCarts(c *gin.Context) {
 	// Get carts with filtering
 	carts, total, err := h.getAdminCarts(ctx, &req)
 	if err != nil {
+		fmt.Printf("[ADMIN_CARTS] query failed: err=%v req=%+v\n", err, req)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to get carts",
 			Message: err.Error(),

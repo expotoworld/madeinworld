@@ -118,6 +118,10 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 		v1.PUT("/stores/:id", handler.UpdateStore)
 		v1.DELETE("/stores/:id", handler.DeleteStore)
 		v1.POST("/stores/:id/image", handler.UploadStoreImage)
+
+		// Admin maintenance endpoints
+		v1.POST("/admin/cleanup-s3", handler.AdminCleanupS3)
+
 	}
 
 	// Root endpoint for basic info

@@ -189,7 +189,11 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 
+
 		WHERE o.id = $1
+
+
+
 	`
 
 	var order models.AdminOrderResponse

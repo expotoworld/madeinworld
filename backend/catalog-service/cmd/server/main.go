@@ -106,7 +106,6 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 		v1.DELETE("/categories/:id", handler.DeleteCategory)
 		v1.GET("/categories/:id/subcategories", handler.GetSubcategories)
 		v1.POST("/categories/:id/subcategories", handler.CreateSubcategory)
-		v1.POST("/categories/:id/image", handler.UploadCategoryImage)
 
 		// Subcategory endpoints
 		v1.PUT("/subcategories/:id", handler.UpdateSubcategory)

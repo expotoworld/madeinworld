@@ -17,7 +17,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	argIndex := 1
 
 	if req.OrderID != "" {
-		whereConditions = append(whereConditions, fmt.Sprintf("o.id::text ILIKE $%d", argIndex))
+		whereConditions = append(whereConditions, fmt.Sprintf("o.order_id::text ILIKE $%d", argIndex))
 		args = append(args, "%"+req.OrderID+"%")
 		argIndex++
 	}
@@ -59,7 +59,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	}
 
 	if req.Search != "" {
-		searchCondition := fmt.Sprintf("(o.id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
+		searchCondition := fmt.Sprintf("(o.order_id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
 		whereConditions = append(whereConditions, searchCondition)
 		args = append(args, "%"+req.Search+"%")
 		argIndex++
@@ -430,7 +430,7 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(DISTINCT CONCAT(c.user_id::text, '-', c.mini_app_type))
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.id
+		LEFT JOIN users u ON c.user_id = u.user_id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		%s
 	`, whereClause)
@@ -457,7 +457,7 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 			MIN(c.created_at) as created_at,
 			MAX(c.updated_at) as updated_at
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.id
+		LEFT JOIN users u ON c.user_id = u.user_id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		LEFT JOIN stores s ON c.store_id = s.store_id
 		%s
@@ -528,7 +528,7 @@ func (h *Handler) getAdminCartByID(ctx context.Context, cartID string) (*models.
 			MIN(c.created_at) as created_at,
 			MAX(c.updated_at) as updated_at
 		FROM carts c
-		LEFT JOIN users u ON c.user_id = u.id
+		LEFT JOIN users u ON c.user_id = u.user_id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
 		LEFT JOIN stores s ON c.store_id = s.store_id
 		WHERE c.user_id = $1 AND c.mini_app_type = $2

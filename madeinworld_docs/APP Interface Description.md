@@ -1,85 +1,239 @@
-### **Global System & Design Principles**
+## **1\. Executive Summary**
 
-These principles apply across the entire application, including all mini-programs, to ensure a cohesive brand identity and user experience.
+* **PostgreSQL** for flexibility, developer velocity, and professional maintainability.  
+* **Compute**: AWS App Runner (global), Alibaba SAE or Function Compute (China).  
+* **Databases**: Neon (Serverless PostgreSQL, global) and ApsaraDB for PostgreSQL (China).  
+* **Static Assets**: **AWS S3 with AWS CloudFront (CDN)** for global, and **Alibaba Cloud OSS with Alibaba Cloud CDN** for China, ensuring fast, low-latency asset delivery.  
+* **Edge Ingress**: Cloudflare Workers (global thin API proxy), Alibaba API Gateway (China).  
+* **Data Sync**: Asynchronous, event-driven synchronization (SQS on AWS, MNS/RocketMQ on Alibaba).  
+* **Secrets management** with cloud-native Secrets Managers.  
+* **Roll out in two phases**: Migrate the global stack first, then add the China region and synchronization when needed and **explicitly prompted**.
 
-* **Typography:**  
-  * **Font Family:** **Manrope**.  
-  * **Hierarchy:**  
-    * **Major Headers** (e.g., "热门推荐", "消息"): Manrope **ExtraBold**, \~20-24px.  
-    * **Card/Item Titles** (e.g., Product Names): Manrope **SemiBold**, \~16px.  
-    * **Body & Descriptions**: Manrope **Regular**, \~12-14px.  
-    * **Buttons & Tabs**: Manrope **SemiBold** or **Bold**, \~12-14px.  
-* **Color Palette:**  
-  * \#D92525 (**Theme Red**): Primary actions, active states, prices, notification badges.  
-  * \#FFF5F5 (**Light Red**): Subtle backgrounds for selected/active elements.  
-  * \#1A1A1A (**Primary Text**): All major text content.  
-  * \#6A7485 (**Secondary Text**): Subtitles, descriptions, inactive states.  
-  * \#F7F9FC (**Light Background**): The default background for all screens.  
-  * \#FFFFFF (**White**): Card backgrounds, inputs.  
-* **For store locations, location pins:**  
-  * \#2196f3 \- Light blue (无人门店)  
-  * \#4caf50 \- Light green (无人仓店)  
-  * \#ffd556 \- Light yellow (展销商店)  
-  * \#f38900 \- Vivid Orange (展销商城)  
-* **Core Interaction & Motion:**  
-  * **Tapping Action:** Interactive elements (buttons, cards) will have a subtle scale(0.98) and opacity(0.9) transition on press to provide visual feedback.  
-  * **Screen Transitions:**  
-    * **Super-App \-\> Mini-App:** The Mini-App screen will **slide in from the bottom**, covering the Super-App frame and appear.  
-    * **Mini-App \-\> Super-App (Back):** The Mini-App screen will **slide down to the bottom**, revealing the Super-App frame underneath and disappearing.  
-    * **Within a Mini-App (e.g., List to Detail):** New screens should **slide in from the right**.  
-    * **Return to the previous screen:** When there is a chevron icon pointing to the left (the back icon) the transition should be that the current screen **sliding out to the right (right sliding motion) and the previous screen or whatever screen the screen is designed to return to should appear underneath.**  
-    * Between the **Bottom Navigation Bar** screen, these should be seamless, unnoticeable.
+---
 
-### ---
+## **2\. Phased Rollout Plan**
 
-**1\. Super-App Main Page**
+### **Phase 1: Migrate the Global Stack (AWS)**
 
-This is the main page container application that houses the core navigation and the entry points to all mini-apps.
+* **Compute**:  
+  * Deploy existing Go microservices (Auth, Catalog, Order, User) as containerized services on **AWS App Runner**.  
+* **Database**:  
+  * Use **Neon (Serverless PostgreSQL)** for the global database.  
+  * Update service configuration to point to Neon, with credentials fetched via **AWS Secrets Manager** at runtime.  
+* **Static Assets**:  
+  * **AWS S3 bucket** for storing all static assets (e.g., product images, user uploads).  
+  * Configure an **AWS CloudFront distribution** in front of the S3 bucket to serve assets globally with low latency.  
+* **Ingress (API)**:  
+  * Implement a **Cloudflare Worker** as a thin HTTPS proxy to the App Runner services (no business logic initially).  
+* **Outcome**:  
+  * A scalable, cost-efficient pipeline for both API traffic and static assets is established.  
+  * Lower operational cost, simpler ops, and the same business capabilities are maintained for non-China users.
 
-#### **1.1. Screen: Home (首页)**
+### **Phase 2: Add China Region \+ Synchronization**
 
-* **Scrolling Behavior:** The entire content area below the Header scrolls vertically as one unit. The decorative backdrop remains static at the top. The Bottom Navigation Bar is fixed at the bottom.  
-* **Component: Decorative Backdrop**  
-  * **Visuals:** A soft, radial gradient with Theme Red at 20% opacity, positioned at the top-center of the screen. It fades out completely about 40-50% down the screen. It sits *behind* all other content. This should give an elegant feel for the users, like a sunset or a golden hour vibe. Should be majestic and take quite a bit of room in the main page of the app.  
-* **Component: Header**  
-  * **Layout:** A single row with elements aligned to the left and right.  
-  * **Left Cluster:**  
-    * **Location Pin Icon:** Theme Red stroke.  
-    * **City Name based on the detected User’s location (e.g. "卢加诺"):** Primary Text color, Bold weight.  
-  * **Right Element:**  
-    * **Notification Bell Icon:** Primary Text color, outline style.  
-* **Component: Search & Actions Bar**  
-  * **Layout:** A row containing the search bar on the left and a QR icon on the right that is outside of the search bar.  
-  * **Search Bar:**  
-    * **Visuals:** Pill-shaped input field with a White background and a subtle grey border.  
-    * **Internal Icon:** A search/magnifying glass icon, Secondary Text color, positioned on the left.  
-    * **Placeholder Text:** "搜索商品...", Secondary Text color.  
-    * **Interaction:** Tapping focuses the input, raises the keyboard, and likely navigates to a dedicated **Search Screen**.  
-  * **QR Scanner Button:**  
-    * **Visuals:** A distinct, recognizable QR code icon (28x28px), Primary Text color. Simple icon, nothing too complex visually.   
-    * **Interaction:** Tapping this button should open the device's camera in a dedicated **QR Scanning UI**.  
-* **Component: Service Modules Mini-programs Grid**  
-  * **Layout:** A 2-column and 2 rows grid.  
-  * **Module Card (Template):**  
-    * **Container:** A tappable \<a\> tag with rounded corners and a slight box-shadow.  
-    * **Icon Container:** A square container with a light, colored background (e.g., bg-red-100) and rounded corners. The icon inside is a single color (e.g., Theme Red).  
-    * **Text Label:** Primary Text, SemiBold weight, 12px size. It must not wrap to a second line (whitespace-nowrap).  
-  * **Interaction:** Tapping on the mini-app programs initiates the slide-in transition to its respective Mini-App (the screen should slide in from the bottom).  
-* **Component: Selected Product Recommendations (热门推荐)**  
-  * **Layout:** A 2-column grid below the section header.  
-  * **Product Card (Template):**  
-    * **Visuals:** Rounded corners, White background, subtle box-shadow.  
-    * **Image:** Placeholder image with a 1:1 aspect ratio.  
-    * **Product Title:** Primary Text, SemiBold.  
-    * **Stock Left:** Secondary Text, Regular, Theme Red. This feature must be present and connected to the database where the stock of the products can be set. The stock shown on the mobile app would be **5 less than** what it is actually in the database (**used as a buffer**).  
-    * **Price (Strikethrough):** Secondary Text, line-through.  
-    * **Price (Main):** Theme Red, Bold weight, larger font size.  
-    * **Add Button ("+"):** A circular, Theme Red button with a white "+". When the user adds something to their cart, it will become a pill shaped icon with “-” on the left and “+” and the user can see how many of the same item is currently in the cart. If the user taps onto this button and it is not signed in, a pop up would prompt the user to sign in, if the user is signed in, it would take the user to the appropriate Mini-App (e.g. if the product belongs to the “无人商店” Mini-app, the interface would redirect to “无人商店” Mini-app, if the product belongs to the “展销展消” Mini-App it would redirect to the “展销展消” Mini-App. The product category would be decided by the database.)  
-  * **Interaction:** Tapping the card navigates to the **Product Detail Page**. Tapping the "+" button adds the item to the cart and should show a small visual confirmation (e.g., the button briefly scales up and back down).  
-  * **Special Note**: The length of the card should adjust based on the text of the title of the product that is present as the first line and the image size of the product image, similar to the UI design of XiaoHongShu Rednote. If the product title is for example two lines because it is longer in length, then obviously the card length would be longer than the product title of products that only takes one line.  
-* **Component: Bottom Navigation Bar**  
-  * **Visuals:** Fixed at the bottom of the screen with a White background and a top border.  
-  * **Nav Item (Template):**  
-    * **Inactive State:** Icon is outline-style, icon and label are Secondary Text.  
-    * **Active State:** Icon is solid/filled, icon and label are Theme Red.  
-  * **Interaction:** Tapping an item navigates to the corresponding screen. The state change is instant.
+* **Compute**:  
+  * Deploy the same Go services in Alibaba Cloud using **Serverless App Engine (SAE)** for long-running containers, or Function Compute (containers) if appropriate.  
+* **Database**:  
+  * Provision **ApsaraDB for PostgreSQL** (e.g., in cn-shanghai) and configure services.  
+* **Static Assets**:  
+  * Provision **Alibaba Cloud OSS (Object Storage Service)** as the S3 equivalent.  
+  * Configure **Alibaba Cloud CDN** to serve assets from OSS within China.  
+* **Ingress (API)**:  
+  * Use **Alibaba API Gateway** to route traffic to the SAE/Function Compute services.  
+* **Synchronization**:  
+  * Implement asynchronous, cross-region data sync:  
+    * **AWS → CN**: SQS \+ a small "sync-out" worker → calls a CN API endpoint → upserts into ApsaraDB.  
+    * **CN → AWS**: MNS/RocketMQ \+ a "sync-out" function → calls an AWS API endpoint → upserts into Neon.  
+* **Outcome**:  
+  * Region-local data and assets are established for performance and compliance.  
+  * Event-driven sync provides global data consistency.
+
+---
+
+## **3\. Definitive Technology Stack**
+
+* **Frontend (Mobile App)**: Flutter (iOS/Android single codebase)  
+* **Admin Panel**: React \+ MUI  
+* **Backend Language/Framework**: Go (Gin), HTTP JSON APIs  
+* **Containerization**: Docker  
+* **Compute (Global)**: AWS App Runner  
+* **Compute (China)**: Alibaba Serverless App Engine (SAE) or Function Compute (containers)  
+* **Databases (Relational SQL)**:  
+  * **Global**: Neon (PostgreSQL)  
+  * **China**: ApsaraDB for PostgreSQL  
+* **Storage (Object)**:  
+  * **Global**: AWS S3 (Simple Storage Service)  
+  * **China**: Alibaba Cloud OSS (Object Storage Service)  
+* **Edge & Content Delivery**:  
+  * **Global API Ingress**: Cloudflare Workers (thin proxy)  
+  * **Global Static Assets**: **AWS CloudFront (CDN)**  
+  * **China API Ingress**: Alibaba API Gateway (HTTPS)  
+  * **China Static Assets**: **Alibaba Cloud CDN**  
+* **Data Sync & Messaging**:  
+  * **AWS**: SQS (Simple Queue Service)  
+  * **Alibaba Cloud**: MNS (Message Service) or RocketMQ  
+* **Secrets & Config**:  
+  * **AWS**: AWS Secrets Manager (fetched via IAM role at runtime)  
+  * **Alibaba Cloud**: KMS/Secrets Manager equivalent (fetched via RAM roles)  
+* **Observability**:  
+  * **AWS**: CloudWatch (Logs, Metrics), X-Ray (optional), CloudFront Logs  
+  * **Alibaba**: Log Service (SLS), CloudMonitor  
+  * **Cloudflare**: Request Logs & Analytics  
+* **DNS & Routing**:  
+  * AWS Route 53 with geolocation policies.  
+* **CI/CD & IaC**:  
+  * **CI/CD**: GitHub Actions (build, test, containerize, push, deploy)  
+  * **IaC**: Terraform (AWS \+ Alibaba providers)
+
+---
+
+**4\. Core Architecture**
+
+### **4.1 Request Flow (Global API)**
+
+Client → Cloudflare Worker (HTTPS) → App Runner service (e.g., Catalog) → Neon (PostgreSQL)
+
+* The worker acts as a thin, secure proxy for dynamic API calls.  
+* App Runner scales automatically, removing cluster management overhead.
+
+### **4.2 Request Flow (Global Static Assets)**
+
+Client → Cloudflare (DNS/Proxy) → **AWS CloudFront (CDN)** → **AWS S3 Bucket**
+
+* CloudFront serves cached assets from the edge location closest to the user for maximum performance.  
+* The S3 bucket can remain private, accessible only by the CloudFront distribution.
+
+### **4.3 Request Flow (China)**
+
+* **API**: Client → Alibaba API Gateway (HTTPS) → SAE/Function Compute service → ApsaraDB for PostgreSQL  
+* **Assets**: Client → Alibaba Cloud CDN → Alibaba Cloud OSS
+
+### **4.4 Data Synchronization**
+
+* **Event Source**: After a successful DB commit, the application publishes a minimal change event.  
+* **AWS → CN**: Go service → SQS → Sync Worker (Lambda/App Runner) → Calls CN API → Writes to ApsaraDB.  
+* **CN → AWS**: Go service → MNS/RocketMQ → Sync Worker (FC/SAE) → Calls AWS API → Writes to Neon.  
+* **Conflict Resolution**: Use updated\_at timestamps (last-writer-wins) or domain-specific rules.
+
+---
+
+## **5\. Service Responsibilities**
+
+* **Auth Service**: Manages passwordless flow, JWT issuance/validation.  
+* **Catalog Service**: Manages categories, products, and store definitions. **Responsible for managing metadata of product images stored in S3/OSS.**  
+* **User Service**: Manages user profiles. **Responsible for handling uploads and metadata for user assets (e.g., avatars) stored in S3/OSS.**  
+* **Order Service**: Manages carts and orders.  
+* **Inventory/Notification Services**: As defined previously, scoped by region.
+
+All services remain stateless HTTP JSON servers and use the region-local PostgreSQL repository. They are responsible for emitting events upon state changes to trigger synchronization.
+
+---
+
+## **6\. Secrets & Configuration**
+
+* **Global (AWS)**: Store DB credentials in AWS Secrets Manager. App Runner services are granted an IAM role to retrieve secrets at runtime.  
+* **China (Alibaba)**: Use Alibaba Secrets Manager with RAM roles for SAE/Function Compute. The same retrieval and short-term caching pattern applies.
+
+---
+
+## **7\. CI/CD and IaC**
+
+* **IaC (Terraform)**: Define all infrastructure resources (**App Runner, SQS, S3, CloudFront, SAE, MNS, OSS, CDNs, IAM/RAM roles, DNS**) as code for consistency and repeatability.  
+* **CI/CD (GitHub Actions)**: Create workflows to lint, test, build Go binaries, create Docker images, push to registries (ECR for AWS, ACR for Alibaba), and trigger deployments to App Runner and SAE.
+
+---
+
+## **8\. Observability & Reliability**
+
+* **Logging**: Use structured JSON logs in all services for easier parsing and searching.  
+* **Metrics**: Monitor basic endpoint metrics (latency, error rate, throughput), **CloudFront metrics (cache-hit ratio)**, and key business metrics (e.g., orders per hour).  
+* **Tracing**: Optionally implement distributed tracing (e.g., OpenTelemetry) and propagate correlation IDs through all services via headers.  
+* **Health Checks**: Leverage built-in health checks from App Runner and SAE.  
+* **Backups**: Configure automated backup policies for Neon, ApsaraDB, S3, and OSS.
+
+---
+
+## **9\. Security**
+
+* **Transport**: Enforce HTTPS everywhere with HSTS at the edge.  
+* **Authentication**: Continue using the JWT-based pattern.  
+* **Authorization**: Implement role-based checks within services.  
+* **Rate Limiting**: Use Cloudflare and Alibaba API Gateway for basic IP-based rate limiting.  
+* **Secrets**: Strictly avoid plaintext secrets in code or environment variables. Always use a secrets manager.  
+* **Asset Security**:  
+  * Keep S3/OSS buckets **private**. Use **CloudFront Origin Access Control (OAC)** or Alibaba CDN equivalent to allow the CDN to securely access bucket contents.  
+  * For user-restricted content, generate **pre-signed URLs** from the backend services.  
+* **Database Access**: Restrict network access to the databases from only the necessary application sources.
+
+---
+
+## **10\. DNS & Routing**
+
+* **Route 53**:  
+  * device-api.expomadeinworld.com → Geolocation policy → Points to Cloudflare Worker (Global).  
+  * assets.expomadeinworld.com → CNAME → Points to **AWS CloudFront distribution**.  
+  * device-api-cn.expomadeinworld.com → Geolocation policy (for China) → Points to Alibaba API Gateway.  
+  * assets-cn.expomadeinworld.com → CNAME → Points to **Alibaba Cloud CDN distribution**.  
+* **Client Configuration**: Clients in China should be configured to use the \-cn endpoints for both the API and assets for optimal latency.
+
+---
+
+## **11\. Reference Code Snippets**
+
+### **Thin Cloudflare Worker Proxy**
+
+JavaScript
+
+JavaScript
+
+export default {  
+  async fetch(request) {  
+    const url \= new URL(request.url);  
+    // Replace with your App Runner service hostname  
+    url.hostname \= "your-app-runner-service.awsapprunner.com";
+
+    // Attach a correlation ID for tracing  
+    const headers \= new Headers(request.headers);  
+    headers.set("x-correlation-id", crypto.randomUUID());
+
+    return fetch(url.toString(), {  
+      method: request.method,  
+      headers,  
+      body: request.body,  
+      redirect: "follow",  
+    });  
+  }  
+}
+
+### **Publish Event to SQS (Go)**
+
+Go
+
+Go
+
+import (  
+    "context"  
+    "encoding/json"  
+    "time"  
+    "github.com/aws/aws-sdk-go-v2/service/sqs"  
+    "github.com/aws/aws-sdk-go-v2/aws"  
+)
+
+type ProductUpdatedEvent struct {  
+    ID        string    \`json:"id"\`  
+    UpdatedAt time.Time \`json:"updated\_at"\`  
+}
+
+// publishProductUpdated sends an event to SQS after a successful DB write.  
+func publishProductUpdated(ctx context.Context, sqsClient \*sqs.Client, queueURL string, event ProductUpdatedEvent) error {  
+    body, err := json.Marshal(event)  
+    if err \!= nil {  
+        return err // Should not happen with this struct  
+    }
+
+    \_, err \= sqsClient.SendMessage(ctx, \&sqs.SendMessageInput{  
+        QueueUrl:    aws.String(queueURL),  
+        MessageBody: aws.String(string(body)),  
+    })  
+    return err  
+}

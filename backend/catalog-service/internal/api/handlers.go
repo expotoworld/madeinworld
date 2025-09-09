@@ -1214,8 +1214,12 @@ func (h *Handler) uploadToS3(ctx context.Context, productID int, fileHeader *mul
 		return "", fmt.Errorf("failed to upload file to S3: %w", err)
 	}
 
-	// Construct URL
-	imageURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucketName, cfg.Region, objectKey)
+	// Construct the new CloudFront URL using the environment variable
+	cdnBase := os.Getenv("ASSETS_CDN_BASE_URL")
+	if cdnBase == "" {
+		cdnBase = "https://assets.expomadeinworld.com" // Fallback
+	}
+	imageURL := fmt.Sprintf("%s/%s", strings.TrimRight(cdnBase, "/"), objectKey)
 	return imageURL, nil
 }
 
@@ -2120,13 +2124,12 @@ func saveUploadedFile(file multipart.File, filepath string) error {
 
 // UploadProductImages handles POST /products/:id/images (multiple images)
 func (h *Handler) UploadProductImages(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second) // Increased timeout for multiple files
 	defer cancel()
 
 	productIDStr := c.Param("id")
 	productID, err := strconv.Atoi(productIDStr)
 	if err != nil {
-
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
 		return
 	}
@@ -2147,7 +2150,6 @@ func (h *Handler) UploadProductImages(c *gin.Context) {
 	var uploadedImages []models.ProductImage
 
 	for i, fileHeader := range files {
-		// Validate file type
 		file, err := fileHeader.Open()
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to open file"})
@@ -2155,47 +2157,21 @@ func (h *Handler) UploadProductImages(c *gin.Context) {
 		}
 		defer file.Close()
 
-		// Read first 512 bytes to detect content type
-		buffer := make([]byte, 512)
-		_, err = file.Read(buffer)
+		// Upload the file to S3 and get the CloudFront URL
+		objectKey := fmt.Sprintf("products/%d/%d_%s", productID, time.Now().UnixNano(), fileHeader.Filename)
+		imageURL, err := h.uploadGenericToS3(ctx, objectKey, file)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+			log.Printf("Failed to upload image to S3: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload an image"})
 			return
 		}
-
-		contentType := http.DetectContentType(buffer)
-		if !h.isValidImageType(contentType) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed"})
-			return
-		}
-
-		// Reset file pointer
-		file.Seek(0, 0)
-
-		// Generate unique filename
-		filename := fmt.Sprintf("%d_%d_%s", productID, time.Now().UnixNano(), fileHeader.Filename)
-
-		// Save file to uploads directory
-		uploadPath := fmt.Sprintf("uploads/products/%s", filename)
-		if err := h.saveUploadedFile(file, uploadPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-			return
-		}
-
-		// Create image URL - use environment variable for base URL or default to localhost for development
-		baseURL := os.Getenv("SERVICE_BASE_URL")
-		if baseURL == "" {
-			baseURL = "http://localhost:8080"
-		}
-		imageURL := fmt.Sprintf("%s/%s", baseURL, uploadPath)
 
 		// Get next display order
 		displayOrder := i + 1
 
-		// Check if this should be the primary image (first one if no primary exists)
+		// Check if this should be the primary image
 		isPrimary := false
 		if i == 0 {
-			// Check if product has any existing images
 			existingImages, _ := h.getProductImagesDetailed(ctx, productID)
 			isPrimary = len(existingImages) == 0
 		}
@@ -2204,7 +2180,7 @@ func (h *Handler) UploadProductImages(c *gin.Context) {
 		imageID, err := h.addProductImage(ctx, productID, imageURL, displayOrder, isPrimary)
 		if err != nil {
 			log.Printf("Failed to save image to database: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image metadata"})
 			return
 		}
 

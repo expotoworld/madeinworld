@@ -785,15 +785,16 @@ func (db *Database) CreateUserFromEmail(ctx context.Context, email string) (*mod
 	}
 
 	query := `
-		INSERT INTO users (username, email, first_name, last_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, now(), now())
-		RETURNING id, username, email, first_name, last_name, created_at, updated_at
+		INSERT INTO users (username, email, password_hash, first_name, last_name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now(), now())
+		RETURNING id, username, email, password_hash, first_name, last_name, created_at, updated_at
 	`
 
-	err := db.Pool.QueryRow(ctx, query, user.Username, user.Email, user.FirstName, user.LastName).Scan(
+	err := db.Pool.QueryRow(ctx, query, user.Username, user.Email, "", user.FirstName, user.LastName).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
+		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
 		&user.CreatedAt,

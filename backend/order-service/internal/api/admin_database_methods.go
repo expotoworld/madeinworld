@@ -17,7 +17,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	argIndex := 1
 
 	if req.OrderID != "" {
-		whereConditions = append(whereConditions, fmt.Sprintf("o.order_id::text ILIKE $%d", argIndex))
+		whereConditions = append(whereConditions, fmt.Sprintf("o.id::text ILIKE $%d", argIndex))
 		args = append(args, "%"+req.OrderID+"%")
 		argIndex++
 	}
@@ -53,7 +53,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 	}
 
 	if req.Search != "" {
-		searchCondition := fmt.Sprintf("(o.order_id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
+		searchCondition := fmt.Sprintf("(o.id::text ILIKE $%d OR u.email ILIKE $%d OR u.username ILIKE $%d)", argIndex, argIndex, argIndex)
 		whereConditions = append(whereConditions, searchCondition)
 		args = append(args, "%"+req.Search+"%")
 		argIndex++
@@ -235,6 +235,14 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 
+
+		WHERE o.id = $1
+
+
+
+
+
+
 		WHERE o.id = $1
 
 
@@ -242,12 +250,8 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 
 
 
-		WHERE o.id = $1
 
 
-
-
-		WHERE o.id = $1
 
 
 		WHERE o.id = $1
@@ -299,7 +303,7 @@ func (h *Handler) updateOrderStatus(ctx context.Context, orderID string, newStat
 
 	// Get current status
 	var currentStatus models.OrderStatus
-	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE order_id = $1", orderID).Scan(&currentStatus)
+	err = tx.QueryRow(ctx, "SELECT status FROM orders WHERE id = $1", orderID).Scan(&currentStatus)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("order not found")

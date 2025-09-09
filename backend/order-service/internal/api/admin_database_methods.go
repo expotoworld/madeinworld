@@ -40,12 +40,6 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 		argIndex++
 	}
 
-	if req.StoreID != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("o.store_id = $%d", argIndex))
-		args = append(args, *req.StoreID)
-		argIndex++
-	}
-
 	if req.DateFrom != "" {
 		whereConditions = append(whereConditions, fmt.Sprintf("o.created_at >= $%d", argIndex))
 		args = append(args, req.DateFrom+" 00:00:00")
@@ -96,7 +90,10 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 		SELECT COUNT(*)
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
-		LEFT JOIN stores s ON o.store_id = s.store_id
+
+
+
+
 		%s
 	`, whereClause)
 
@@ -115,8 +112,7 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			COALESCE(u.email, '') as user_email,
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
 			o.mini_app_type,
-			o.store_id,
-			COALESCE(s.name, '') as store_name,
+
 			o.total_amount,
 			o.status,
 			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
@@ -124,7 +120,11 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			o.updated_at
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
-		LEFT JOIN stores s ON o.store_id = s.store_id
+
+
+
+
+
 		%s
 		%s
 		LIMIT $%d OFFSET $%d
@@ -147,8 +147,6 @@ func (h *Handler) getAdminOrders(ctx context.Context, req *models.AdminOrderList
 			&order.UserEmail,
 			&order.UserName,
 			&order.MiniAppType,
-			&order.StoreID,
-			&order.StoreName,
 			&order.TotalAmount,
 			&order.Status,
 			&order.ItemCount,
@@ -179,8 +177,6 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			COALESCE(u.email, '') as user_email,
 			TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) as user_name,
 			o.mini_app_type,
-			o.store_id,
-			COALESCE(s.name, '') as store_name,
 			o.total_amount,
 			o.status,
 			(SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) as item_count,
@@ -188,7 +184,11 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 			o.updated_at
 		FROM orders o
 		LEFT JOIN users u ON o.user_id = u.id
-		LEFT JOIN stores s ON o.store_id = s.store_id
+
+
+
+
+
 		WHERE o.order_id = $1
 	`
 
@@ -199,8 +199,6 @@ func (h *Handler) getAdminOrderByID(ctx context.Context, orderID string) (*model
 		&order.UserEmail,
 		&order.UserName,
 		&order.MiniAppType,
-		&order.StoreID,
-		&order.StoreName,
 		&order.TotalAmount,
 		&order.Status,
 		&order.ItemCount,
@@ -377,12 +375,6 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 		argIndex++
 	}
 
-	if req.StoreID != nil {
-		whereConditions = append(whereConditions, fmt.Sprintf("c.store_id = $%d", argIndex))
-		args = append(args, *req.StoreID)
-		argIndex++
-	}
-
 	if req.DateFrom != "" {
 		whereConditions = append(whereConditions, fmt.Sprintf("c.created_at >= $%d", argIndex))
 		args = append(args, req.DateFrom+" 00:00:00")
@@ -450,8 +442,6 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 			COALESCE(u.email, '') as user_email,
 			COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.username) as user_name,
 			c.mini_app_type,
-			c.store_id,
-			COALESCE(s.name, '') as store_name,
 			COUNT(c.id) as item_count,
 			COALESCE(SUM(p.main_price * c.quantity), 0) as total_value,
 			MIN(c.created_at) as created_at,
@@ -459,9 +449,8 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 		FROM carts c
 		LEFT JOIN users u ON c.user_id = u.id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
-		LEFT JOIN stores s ON c.store_id = s.store_id
 		%s
-		GROUP BY c.user_id, c.mini_app_type, c.store_id, u.email, u.first_name, u.last_name, u.username, s.name
+		GROUP BY c.user_id, c.mini_app_type, u.email, u.first_name, u.last_name, u.username
 		%s
 		LIMIT $%d OFFSET $%d
 	`, whereClause, orderBy, argIndex, argIndex+1)
@@ -477,15 +466,13 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 	var carts []models.AdminCartResponse
 	for rows.Next() {
 		var cart models.AdminCartResponse
-		var storeID *int
+
 		err := rows.Scan(
 			&cart.ID,
 			&cart.UserID,
 			&cart.UserEmail,
 			&cart.UserName,
 			&cart.MiniAppType,
-			&storeID,
-			&cart.StoreName,
 			&cart.ItemCount,
 			&cart.TotalValue,
 			&cart.CreatedAt,
@@ -495,7 +482,6 @@ func (h *Handler) getAdminCarts(ctx context.Context, req *models.AdminCartListRe
 			return nil, 0, fmt.Errorf("failed to scan cart: %w", err)
 		}
 
-		cart.StoreID = storeID
 		carts = append(carts, cart)
 	}
 
@@ -521,8 +507,7 @@ func (h *Handler) getAdminCartByID(ctx context.Context, cartID string) (*models.
 			COALESCE(u.email, '') as user_email,
 			COALESCE(CONCAT(u.first_name, ' ', u.last_name), u.username) as user_name,
 			c.mini_app_type,
-			c.store_id,
-			COALESCE(s.name, '') as store_name,
+
 			COUNT(c.id) as item_count,
 			COALESCE(SUM(p.main_price * c.quantity), 0) as total_value,
 			MIN(c.created_at) as created_at,
@@ -530,21 +515,19 @@ func (h *Handler) getAdminCartByID(ctx context.Context, cartID string) (*models.
 		FROM carts c
 		LEFT JOIN users u ON c.user_id = u.id
 		LEFT JOIN products p ON c.product_id = p.product_uuid
-		LEFT JOIN stores s ON c.store_id = s.store_id
+
 		WHERE c.user_id = $1 AND c.mini_app_type = $2
-		GROUP BY c.user_id, c.mini_app_type, c.store_id, u.email, u.first_name, u.last_name, u.username, s.name
+		GROUP BY c.user_id, c.mini_app_type, u.email, u.first_name, u.last_name, u.username
 	`
 
 	var cart models.AdminCartResponse
-	var storeID *int
+
 	err := h.db.Pool.QueryRow(ctx, query, userID, miniAppType).Scan(
 		&cart.ID,
 		&cart.UserID,
 		&cart.UserEmail,
 		&cart.UserName,
 		&cart.MiniAppType,
-		&storeID,
-		&cart.StoreName,
 		&cart.ItemCount,
 		&cart.TotalValue,
 		&cart.CreatedAt,
@@ -556,8 +539,6 @@ func (h *Handler) getAdminCartByID(ctx context.Context, cartID string) (*models.
 		}
 		return nil, fmt.Errorf("failed to get cart: %w", err)
 	}
-
-	cart.StoreID = storeID
 
 	// Get cart items
 	itemsQuery := `

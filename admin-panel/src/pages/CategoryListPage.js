@@ -92,27 +92,7 @@ const CategoryListPage = () => {
     return `${API_BASE}${url}`;
   };
 
-  const handleCategoryImageUpload = async (categoryId, file) => {
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
 
-      const response = await fetch(`${API_BASE}/api/v1/categories/${categoryId}/image`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.ok) {
-        showToast('Category image uploaded successfully', 'success');
-        fetchCategories();
-      } else {
-        showToast('Failed to upload category image', 'error');
-      }
-    } catch (error) {
-      console.error('Error uploading category image:', error);
-      showToast('Error uploading category image', 'error');
-    }
-  };
 
   const getStoreTypeInfo = (type) => {
     return storeTypeOptions.find(opt => opt.value === type) || { color: '#666', miniApp: 'Unknown' };
@@ -673,21 +653,7 @@ const CategoryListPage = () => {
                       </Typography>
                     </Box>
 
-                    <Tooltip title="Upload Image">
-                      <IconButton size="small" component="label">
-                        <PhotoIcon />
-                        <input
-                          type="file"
-                          hidden
-                          accept="image/*"
-                          onChange={(e) => {
-                            if (e.target.files[0]) {
-                              handleCategoryImageUpload(category.id, e.target.files[0]);
-                            }
-                          }}
-                        />
-                      </IconButton>
-                    </Tooltip>
+
                     <IconButton
                       size="small"
                       onClick={(e) => {

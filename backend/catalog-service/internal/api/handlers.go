@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"database/sql"
+
 	"fmt"
 	"io"
 	"log"
@@ -310,11 +312,11 @@ func (h *Handler) GetProducts(c *gin.Context) {
             SELECT
                 p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
                 p.manufacturer_id,
-                CASE
+                COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
                     THEN s.type
                     ELSE p.store_type
-                END as store_type,
+                END, '') as store_type,
                 p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
                 p.cost_price, p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
             FROM products p
@@ -327,11 +329,11 @@ func (h *Handler) GetProducts(c *gin.Context) {
             SELECT
                 p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
                 p.manufacturer_id,
-                CASE
+                COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
                     THEN s.type
                     ELSE p.store_type
-                END as store_type,
+                END, '') as store_type,
                 p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
                 p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
             FROM products p
@@ -403,6 +405,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 	for rows.Next() {
 		var product models.Product
 		var err error
+		var storeType sql.NullString
 
 		if isAdminRequest {
 			err = rows.Scan(
@@ -413,7 +416,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 				&product.DescriptionShort,
 				&product.DescriptionLong,
 				&product.ManufacturerID,
-				&product.StoreType,
+				&storeType,
 				&product.MiniAppType,
 				&product.StoreID,
 				&product.MainPrice,
@@ -436,7 +439,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 				&product.DescriptionShort,
 				&product.DescriptionLong,
 				&product.ManufacturerID,
-				&product.StoreType,
+				&storeType,
 				&product.MiniAppType,
 				&product.StoreID,
 				&product.MainPrice,
@@ -455,6 +458,8 @@ func (h *Handler) GetProducts(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan product"})
 			return
 		}
+		// Normalize nullable store_type from DB into string type
+		product.StoreType = models.StoreType(storeType.String)
 
 		// Get product images
 		images, err := h.getProductImages(ctx, product.ID)
@@ -630,6 +635,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 
 	var product models.Product
 	var err error
+	var storeType sql.NullString
 
 	if isAdminRequest {
 		err = h.db.Pool.QueryRow(ctx, query, queryParam).Scan(
@@ -640,7 +646,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			&product.DescriptionShort,
 			&product.DescriptionLong,
 			&product.ManufacturerID,
-			&product.StoreType,
+			&storeType,
 			&product.MiniAppType,
 			&product.StoreID,
 			&product.MainPrice,
@@ -663,7 +669,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			&product.DescriptionShort,
 			&product.DescriptionLong,
 			&product.ManufacturerID,
-			&product.StoreType,
+			&storeType,
 			&product.MiniAppType,
 			&product.StoreID,
 			&product.MainPrice,
@@ -683,6 +689,8 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
+	// Normalize nullable store_type from DB into string type
+	product.StoreType = models.StoreType(storeType.String)
 
 	// Get product images
 	images, err := h.getProductImages(ctx, product.ID)

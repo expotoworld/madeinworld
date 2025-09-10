@@ -311,7 +311,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		query = `
             SELECT
                 p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-                p.manufacturer_id,
+                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
                 COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
                     THEN s.type
@@ -328,7 +328,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		query = `
             SELECT
                 p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-                p.manufacturer_id,
+                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
                 COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
                     THEN s.type
@@ -572,7 +572,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			query = `
 	            SELECT
 	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-	                p.manufacturer_id,
+	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
@@ -588,7 +588,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			query = `
 	            SELECT
 	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-	                p.manufacturer_id,
+	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
@@ -608,7 +608,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			query = `
 	            SELECT
 	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-	                p.manufacturer_id,
+	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
@@ -624,7 +624,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			query = `
 	            SELECT
 	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
-	                p.manufacturer_id,
+	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type

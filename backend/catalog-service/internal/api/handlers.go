@@ -1256,7 +1256,12 @@ func (h *Handler) uploadGenericToS3(ctx context.Context, objectKey string, file 
 		return "", fmt.Errorf("failed to upload file to S3: %w", err)
 	}
 
-	imageURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucketName, cfg.Region, objectKey)
+	// Build CloudFront URL using env var (same behavior as uploadToS3)
+	cdnBase := os.Getenv("ASSETS_CDN_BASE_URL")
+	if cdnBase == "" {
+		cdnBase = "https://assets.expomadeinworld.com"
+	}
+	imageURL := fmt.Sprintf("%s/%s", strings.TrimRight(cdnBase, "/"), objectKey)
 	return imageURL, nil
 }
 

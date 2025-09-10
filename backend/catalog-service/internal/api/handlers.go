@@ -373,8 +373,14 @@ func (h *Handler) GetProducts(c *gin.Context) {
 
 	// Add store ID filter
 	if storeID != "" {
+		sid, err := strconv.Atoi(storeID)
+		if err != nil {
+			log.Printf("Invalid store_id param '%s': %v", storeID, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid store_id"})
+			return
+		}
 		query += fmt.Sprintf(" AND p.store_id = $%d", argIndex)
-		args = append(args, storeID)
+		args = append(args, sid)
 		argIndex++
 	}
 

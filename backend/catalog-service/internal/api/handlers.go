@@ -310,7 +310,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		// Admin requests show ALL products (active and inactive) for complete management
 		query = `
             SELECT
-                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
                 COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
@@ -327,7 +327,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		// Public requests only show active products
 		query = `
             SELECT
-                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
                 COALESCE(CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
@@ -571,7 +571,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		if isAdminRequest {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
@@ -587,7 +587,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		} else {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
@@ -607,7 +607,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		if isAdminRequest {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
@@ -623,7 +623,7 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		} else {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, p.sku, p.title, p.description_short, p.description_long,
+	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL

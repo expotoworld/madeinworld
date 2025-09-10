@@ -7,7 +7,7 @@ import {
   Alert,
   Snackbar,
 } from '@mui/material';
-import { productService } from '../services/api';
+
 
 const ProductStatusToggle = ({ product, onStatusChanged }) => {
   const [loading, setLoading] = useState(false);

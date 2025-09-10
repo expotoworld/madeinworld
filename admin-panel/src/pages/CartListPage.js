@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -32,7 +32,7 @@ import {
   Delete as DeleteIcon,
   FilterList as FilterIcon,
   Search as SearchIcon,
-  ShoppingBasket as CartIcon,
+
 } from '@mui/icons-material';
 import { cartService } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
@@ -49,7 +49,7 @@ const CartListPage = () => {
   const [selectedCart, setSelectedCart] = useState(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [cartToDelete, setCartToDelete] = useState(null);
-  
+
   // Filters
   const [filters, setFilters] = useState({
     search: '',
@@ -78,11 +78,9 @@ const CartListPage = () => {
     GroupBuying: '#076200',
   };
 
-  useEffect(() => {
-    fetchCarts();
-  }, [page, rowsPerPage, filters]);
 
-  const fetchCarts = async () => {
+
+  const fetchCarts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -110,9 +108,15 @@ const CartListPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, filters, showToast]);
+
+  useEffect(() => {
+    fetchCarts();
+  }, [fetchCarts]);
 
   const handleChangePage = (event, newPage) => {
+
+
     setPage(newPage);
   };
 

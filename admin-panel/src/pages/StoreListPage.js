@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -19,12 +19,12 @@ import {
   MenuItem,
   Alert,
   Avatar,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  ListItemAvatar,
-  Fab,
+
+
+
+
+
+
   Tooltip,
 } from '@mui/material';
 import {
@@ -51,7 +51,7 @@ const StoreListPage = () => {
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
   const [editingStore, setEditingStore] = useState(null);
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [, setSelectedImage] = useState(null);
   const { showToast } = useToast();
 
   const [storeForm, setStoreForm] = useState({
@@ -72,11 +72,9 @@ const StoreListPage = () => {
     { value: '展销商城', label: '展销商城', color: '#f38900', miniApp: '展销展消' },
   ];
 
-  useEffect(() => {
-    fetchStores();
-  }, []);
 
-  const fetchStores = async () => {
+
+  const fetchStores = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE}/api/v1/stores`);
@@ -92,9 +90,15 @@ const StoreListPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
+
+  useEffect(() => {
+    fetchStores();
+  }, [fetchStores]);
 
   const handleCreateStore = async () => {
+
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/stores`, {
         method: 'POST',

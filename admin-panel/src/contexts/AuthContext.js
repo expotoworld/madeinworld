@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext();
@@ -103,7 +103,7 @@ export const AuthProvider = ({ children }) => {
     delete axios.defaults.headers.common['Authorization'];
   };
 
-  const refreshToken = async () => {
+  const refreshToken = useCallback(async () => {
     try {
       const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
       const response = await axios.post(`${API_BASE}/api/auth/refresh`, {}, {
@@ -131,7 +131,7 @@ export const AuthProvider = ({ children }) => {
       logout();
       return false;
     }
-  };
+  }, [token]);
 
   // Auto-refresh token before expiration
   useEffect(() => {
@@ -162,7 +162,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Error setting up token refresh:', error);
     }
-  }, [token, isAuthenticated]);
+  }, [token, isAuthenticated, refreshToken]);
 
   const value = {
     isAuthenticated,

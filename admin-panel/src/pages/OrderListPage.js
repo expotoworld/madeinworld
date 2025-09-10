@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -30,9 +30,9 @@ import {
 } from '@mui/material';
 import {
   Visibility as ViewIcon,
-  Edit as EditIcon,
+
   Delete as DeleteIcon,
-  FilterList as FilterIcon,
+
   Search as SearchIcon,
 } from '@mui/icons-material';
 import { orderService } from '../services/api';
@@ -52,7 +52,7 @@ const OrderListPage = () => {
   const [bulkUpdateModalOpen, setBulkUpdateModalOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkReason, setBulkReason] = useState('');
-  
+
   // Filters
   const [filters, setFilters] = useState({
     search: '',
@@ -82,11 +82,9 @@ const OrderListPage = () => {
     GroupBuying: '团购团批',
   };
 
-  useEffect(() => {
-    fetchOrders();
-  }, [page, rowsPerPage, filters]);
 
-  const fetchOrders = async () => {
+
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -114,9 +112,15 @@ const OrderListPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, filters, showToast]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
 
   const handleChangePage = (event, newPage) => {
+
+
     setPage(newPage);
   };
 

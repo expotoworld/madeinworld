@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -17,16 +17,10 @@ import {
   Stepper,
   Step,
   StepLabel,
-  Card,
-  CardContent,
-  Avatar,
   FormControlLabel,
   Switch,
 } from '@mui/material';
-import {
-  CloudUpload as UploadIcon,
-  CheckCircle as SuccessIcon,
-} from '@mui/icons-material';
+
 import { productService, storeService, categoryService } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 import ImageCarousel from './ImageCarousel';
@@ -39,7 +33,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  
+
   // Form data
   const [formData, setFormData] = useState({
     // Step 1 - Basic Product Details
@@ -75,19 +69,15 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [loadingSubcategories, setLoadingSubcategories] = useState(false);
 
-  // Mini-app type options
-  const miniAppTypes = [
+  // Mini-app type options (memoized to stabilize dependencies)
+  const miniAppTypes = useMemo(() => ([
     { value: '零售门店', label: '零售门店', requiresStore: false },
     { value: '无人商店', label: '无人商店', requiresStore: true },
     { value: '展销展消', label: '展销展消', requiresStore: true },
     { value: '团购团批', label: '团购团批', requiresStore: false },
-  ];
+  ]), []);
 
-  // Load initial data when component mounts
-  useEffect(() => {
-    // Load categories for default mini-app type
-    loadCategories(formData.mini_app_type);
-  }, []);
+
 
   // Helper function to convert backend mini-app type to frontend display value
   const convertBackendMiniAppType = (backendType) => {
@@ -100,70 +90,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     return backendToFrontendMap[backendType] || '零售门店';
   };
 
-  // Initialize form data when editing an existing product
-  useEffect(() => {
-    if (product && open) {
-      // Convert backend mini-app type to frontend value
-      const frontendMiniAppType = convertBackendMiniAppType(product.mini_app_type);
 
-      setFormData({
-        title: product.title || '',
-        sku: product.sku || '',
-        description_long: product.description_long || '',
-        main_price: product.main_price || '',
-        strikethrough_price: product.strikethrough_price || '',
-        cost_price: product.cost_price || '',
-        stock_left: product.stock_left || 0,
-        minimum_order_quantity: product.minimum_order_quantity || 1,
-        mini_app_type: frontendMiniAppType,
-        store_id: product.store_id || null,
-        category_ids: product.category_ids || [],
-        subcategory_ids: product.subcategory_ids || [],
-        is_featured: product.is_featured || false,
-        is_mini_app_recommendation: product.is_mini_app_recommendation || false,
-        is_active: product.is_active !== undefined ? product.is_active : true,
-      });
-      setProductId(product.id);
-
-      // Load existing product images
-      loadProductImages(product.id);
-
-      // Load categories for the product's mini-app type
-      loadCategories(frontendMiniAppType);
-
-      // Load subcategories if the product has existing categories
-      if (product.category_ids && product.category_ids.length > 0) {
-        loadSubcategories(product.category_ids[0]);
-      }
-
-      // Load stores if required
-      if (['无人商店', '展销展消'].includes(frontendMiniAppType)) {
-        loadStores(frontendMiniAppType);
-      }
-    } else if (!product && open) {
-      // Reset form for new product creation
-      setFormData({
-        title: '',
-        sku: '',
-        description_long: '',
-        main_price: '',
-        strikethrough_price: '',
-        cost_price: '',
-        stock_left: 0,
-        minimum_order_quantity: 1,
-        mini_app_type: '零售门店',
-        store_id: null,
-        category_ids: [],
-        subcategory_ids: [],
-        is_featured: false,
-        is_mini_app_recommendation: false,
-        is_active: true,
-      });
-      setProductId(null);
-      setProductImages([]);
-      setActiveStep(0);
-    }
-  }, [product, open]);
 
   const handleInputChange = (field) => (event) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -195,7 +122,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
   };
 
   // Load stores based on mini-app type
-  const loadStores = async (miniAppType) => {
+  const loadStores = useCallback(async (miniAppType) => {
     if (!miniAppTypes.find(type => type.value === miniAppType)?.requiresStore) {
       setStores([]);
       return;
@@ -214,10 +141,10 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     } finally {
       setLoadingStores(false);
     }
-  };
+  }, [miniAppTypes, showError]);
 
   // Load categories based on mini-app type and store
-  const loadCategories = async (miniAppType, storeId = null) => {
+  const loadCategories = useCallback(async (miniAppType, storeId = null) => {
     try {
       setLoadingCategories(true);
       const miniAppTypeMap = {
@@ -239,10 +166,10 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     } finally {
       setLoadingCategories(false);
     }
-  };
+  }, [showError]);
 
   // Load subcategories for a specific category
-  const loadSubcategories = async (categoryId) => {
+  const loadSubcategories = useCallback(async (categoryId) => {
     try {
       setLoadingSubcategories(true);
       const subcategoriesData = await categoryService.getSubcategories(categoryId);
@@ -254,7 +181,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     } finally {
       setLoadingSubcategories(false);
     }
-  };
+  }, [showError]);
 
   // Load existing product images when editing
   const loadProductImages = async (productId) => {
@@ -314,12 +241,72 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     setSubcategories([]);
   };
 
+  // Load categories when mini-app type changes or on mount
+  useEffect(() => {
+    loadCategories(formData.mini_app_type);
+  }, [formData.mini_app_type, loadCategories]);
+
+  // Initialize form data when editing an existing product
+  useEffect(() => {
+    if (product && open) {
+      const frontendMiniAppType = convertBackendMiniAppType(product.mini_app_type);
+      setFormData({
+        title: product.title || '',
+        sku: product.sku || '',
+        description_long: product.description_long || '',
+        main_price: product.main_price || '',
+        strikethrough_price: product.strikethrough_price || '',
+        cost_price: product.cost_price || '',
+        stock_left: product.stock_left || 0,
+        minimum_order_quantity: product.minimum_order_quantity || 1,
+        mini_app_type: frontendMiniAppType,
+        store_id: product.store_id || null,
+        category_ids: product.category_ids || [],
+        subcategory_ids: product.subcategory_ids || [],
+        is_featured: product.is_featured || false,
+        is_mini_app_recommendation: product.is_mini_app_recommendation || false,
+        is_active: product.is_active !== undefined ? product.is_active : true,
+      });
+      setProductId(product.id);
+      loadProductImages(product.id);
+      loadCategories(frontendMiniAppType);
+      if (product.category_ids && product.category_ids.length > 0) {
+        loadSubcategories(product.category_ids[0]);
+      }
+      if (['无人商店', '展销展消'].includes(frontendMiniAppType)) {
+        loadStores(frontendMiniAppType);
+      }
+    } else if (!product && open) {
+      setFormData({
+        title: '',
+        sku: '',
+        description_long: '',
+        main_price: '',
+        strikethrough_price: '',
+        cost_price: '',
+        stock_left: 0,
+        minimum_order_quantity: 1,
+        mini_app_type: '零售门店',
+        store_id: null,
+        category_ids: [],
+        subcategory_ids: [],
+        is_featured: false,
+        is_mini_app_recommendation: false,
+        is_active: true,
+      });
+      setProductId(null);
+      setProductImages([]);
+      setActiveStep(0);
+    }
+  }, [product, open, loadCategories, loadStores, loadSubcategories]);
+
   // Handle multiple image upload
   const handleMultipleImageUpload = async (files) => {
     if (!productId) {
       showError('Please create the product first');
       return;
     }
+
 
     try {
       setUploadingImages(true);
@@ -338,7 +325,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
+        await response.text(); // consume body for better error context (optional)
         throw new Error(`Failed to upload images: ${response.status} ${response.statusText}`);
       }
 
@@ -620,7 +607,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
           {product ? 'Edit Product' : 'Add New Product'}
         </Typography>
-        
+
         <Stepper activeStep={activeStep} sx={{ mt: 2 }}>
           {steps.map((label) => (
             <Step key={label}>
@@ -636,7 +623,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
             {error}
           </Alert>
         )}
-        
+
         {success && (
           <Alert severity="success" sx={{ mb: 2 }}>
             {success}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -98,7 +98,7 @@ const CategoryListPage = () => {
     return storeTypeOptions.find(opt => opt.value === type) || { color: '#666', miniApp: 'Unknown' };
   };
 
-  const miniAppTabs = [
+  const miniAppTabs = useMemo(() => [
     {
       value: 'RetailStore',
       label: '零售门店',
@@ -131,19 +131,13 @@ const CategoryListPage = () => {
       requiresStore: false,
       description: 'Direct category management without store location'
     },
-  ];
+] , []);
 
-  useEffect(() => {
-    fetchCategories();
-    fetchStores();
-  }, []);
 
-  useEffect(() => {
-    fetchCategories();
-    fetchStores(); // Also fetch stores when tab changes
-  }, [currentTab, selectedStore]);
 
-  const fetchCategories = async () => {
+
+
+  const fetchCategories = useCallback(async () => {
     try {
       setLoading(true);
       const currentMiniApp = miniAppTabs[currentTab];
@@ -171,9 +165,9 @@ const CategoryListPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentTab, selectedStore, miniAppTabs, showToast]);
 
-  const fetchStores = async () => {
+  const fetchStores = useCallback(async () => {
     try {
       const currentMiniApp = miniAppTabs[currentTab];
       if (!currentMiniApp.requiresStore) {
@@ -201,13 +195,25 @@ const CategoryListPage = () => {
       showToast('Error fetching stores', 'error');
       setStores([]); // Reset to empty array on exception
     }
-  };
+  }, [currentTab, selectedStore, miniAppTabs, showToast]);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchStores();
+  }, [fetchCategories, fetchStores]);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchStores(); // Also fetch stores when tab changes
+  }, [currentTab, selectedStore, fetchCategories, fetchStores]);
 
   const handleCreateCategory = async () => {
     try {
       // Validate display order
       if (categoryForm.display_order < 1) {
         showToast('Display order must be at least 1', 'error');
+
+
         return;
       }
 

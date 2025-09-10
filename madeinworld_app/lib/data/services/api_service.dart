@@ -26,6 +26,7 @@ class ApiService {
   /// [storeId] - Get stock for specific store (optional, for unmanned stores)
   Future<List<Product>> fetchProducts({
     StoreType? storeType,
+    MiniAppType? miniAppType,
     bool? featured,
     int? storeId,
   }) async {
@@ -35,6 +36,10 @@ class ApiService {
 
       if (storeType != null) {
         queryParams['store_type'] = storeType.apiValue;
+      }
+
+      if (miniAppType != null) {
+        queryParams['mini_app_type'] = miniAppType.apiValue;
       }
 
       if (featured != null) {

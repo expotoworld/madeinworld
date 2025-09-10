@@ -216,7 +216,7 @@ class _ProductsTabState extends State<_ProductsTab> {
         includeSubcategories: true,
       );
       _productsFuture = _apiService.fetchProducts(
-        storeType: StoreType.groupBuying, // Filter by group buying store type
+        miniAppType: MiniAppType.groupBuying,
       );
     });
   }

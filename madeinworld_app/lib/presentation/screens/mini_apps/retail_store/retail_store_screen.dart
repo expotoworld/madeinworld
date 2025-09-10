@@ -263,7 +263,7 @@ class _ProductsTabState extends State<_ProductsTab> {
       includeSubcategories: true,
     );
     _productsFuture = _apiService.fetchProducts(
-      storeType: StoreType.retailStore, // Filter by retail store type
+      miniAppType: MiniAppType.retailStore,
     );
   }
 
@@ -313,7 +313,9 @@ class _ProductsTabState extends State<_ProductsTab> {
                         miniAppType: MiniAppType.retailStore,
                         includeSubcategories: true,
                       );
-                      _productsFuture = _apiService.fetchProducts();
+                      _productsFuture = _apiService.fetchProducts(
+                            miniAppType: MiniAppType.retailStore,
+                          );
                     });
                   },
                   style: ElevatedButton.styleFrom(

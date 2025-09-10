@@ -290,6 +290,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 
 	// Parse query parameters
 	storeType := c.Query("store_type")
+	miniAppType := c.Query("mini_app_type")
 	featured := c.Query("featured")
 	storeID := c.Query("store_id")
 
@@ -297,7 +298,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 	isAdminRequest := c.GetHeader("X-Admin-Request") == "true"
 
 	// Debug logging
-	log.Printf("🔍 DEBUG: GetProducts called with params - storeType: %s, featured: %s, storeID: %s, isAdmin: %t", storeType, featured, storeID, isAdminRequest)
+	log.Printf("🔍 DEBUG: GetProducts called with params - storeType: %s, miniAppType: %s, featured: %s, storeID: %s, isAdmin: %t", storeType, miniAppType, featured, storeID, isAdminRequest)
 
 	// Build the query - include cost_price only for admin requests
 	// For location-dependent mini-apps (UnmannedStore, ExhibitionSales), we need to JOIN with stores table
@@ -342,14 +343,30 @@ func (h *Handler) GetProducts(c *gin.Context) {
 	args := []interface{}{}
 	argIndex := 1
 
-	// Add store type filter
-	if storeType != "" {
-		// Use the same logic as the SELECT statement for store type filtering
-		query += fmt.Sprintf(" AND (CASE WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL THEN s.type ELSE p.store_type END) = $%d", argIndex)
-		// Convert English enum values to Chinese database values
-		dbStoreType := convertStoreTypeToDBValue(storeType)
-		args = append(args, dbStoreType)
+	// Add mini-app type filter first (authoritative)
+	if miniAppType != "" {
+		query += fmt.Sprintf(" AND p.mini_app_type = $%d", argIndex)
+		args = append(args, miniAppType)
 		argIndex++
+	}
+
+	// Add store type filter (only for location-based mini-apps)
+	if storeType != "" {
+		// If a non-location mini-app type sneaks in via store_type, coerce to mini_app_type filter
+		if storeType == "RetailStore" || storeType == "GroupBuying" {
+			if miniAppType == "" {
+				query += fmt.Sprintf(" AND p.mini_app_type = $%d", argIndex)
+				args = append(args, storeType)
+				argIndex++
+			}
+		} else {
+			// Use the same logic as the SELECT statement for store type filtering
+			query += fmt.Sprintf(" AND (CASE WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL THEN s.type ELSE p.store_type END) = $%d", argIndex)
+			// Convert English enum values to Chinese database values
+			dbStoreType := convertStoreTypeToDBValue(storeType)
+			args = append(args, dbStoreType)
+			argIndex++
+		}
 	}
 
 	// Add store ID filter

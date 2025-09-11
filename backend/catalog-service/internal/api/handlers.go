@@ -310,15 +310,29 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		// Admin requests show ALL products (active and inactive) for complete management
 		query = `
             SELECT
-                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
-                COALESCE(CASE
+                COALESCE((CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type
-                    ELSE p.store_type
-                END, '') as store_type,
-                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-                p.cost_price, p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+                    THEN s.type::text
+                    ELSE p.store_type::text
+                END), '') as store_type,
+                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+                p.cost_price,
+                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
             FROM products p
             LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
             WHERE 1=1
@@ -327,15 +341,28 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		// Public requests only show active products
 		query = `
             SELECT
-                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
-                COALESCE(CASE
+                COALESCE((CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type
-                    ELSE p.store_type
-                END, '') as store_type,
-                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-                p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+                    THEN s.type::text
+                    ELSE p.store_type::text
+                END), '') as store_type,
+                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
             FROM products p
             LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
             WHERE p.is_active = true
@@ -363,7 +390,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 			}
 		} else {
 			// Use the same logic as the SELECT statement for store type filtering
-			query += fmt.Sprintf(" AND (CASE WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL THEN s.type ELSE p.store_type END) = $%d", argIndex)
+			query += fmt.Sprintf(" AND (CASE WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL THEN s.type::text ELSE p.store_type::text END) = $%d", argIndex)
 			// Convert English enum values to Chinese database values
 			dbStoreType := convertStoreTypeToDBValue(storeType)
 			args = append(args, dbStoreType)
@@ -571,15 +598,29 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		if isAdminRequest {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+	                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
 	                    ELSE p.store_type
-	                END as store_type,
-	                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-	                p.cost_price, p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+	                END::text as store_type,
+	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+	                p.cost_price,
+                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
 	            FROM products p
 	            LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
 	            WHERE p.product_id = $1 AND p.is_active = true
@@ -587,15 +628,28 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		} else {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+	                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
 	                    ELSE p.store_type
-	                END as store_type,
-	                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-	                p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+	                END::text as store_type,
+	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+	                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
 	            FROM products p
 	            LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
 	            WHERE p.product_id = $1 AND p.is_active = true
@@ -607,15 +661,29 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		if isAdminRequest {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+	                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
 	                    ELSE p.store_type
-	                END as store_type,
-	                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-	                p.cost_price, p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+	                END::text as store_type,
+	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+	                p.cost_price,
+                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
 	            FROM products p
 	            LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
 	            WHERE p.product_uuid = $1 AND p.is_active = true
@@ -623,15 +691,28 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		} else {
 			query = `
 	            SELECT
-	                p.product_id, p.product_uuid, COALESCE(p.sku, '') as sku, p.title, COALESCE(p.description_short, '') as description_short, COALESCE(p.description_long, '') as description_long,
+	                p.product_id, p.product_uuid,
+                COALESCE(p.sku, '') as sku,
+                COALESCE(p.title, '') as title,
+                COALESCE(p.description_short, '') as description_short,
+                COALESCE(p.description_long, '') as description_long,
 	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
 	                    THEN s.type
 	                    ELSE p.store_type
-	                END as store_type,
-	                p.mini_app_type, p.store_id, p.main_price, p.strikethrough_price,
-	                p.stock_left, p.minimum_order_quantity, p.is_active, p.is_featured, p.is_mini_app_recommendation, p.created_at, p.updated_at
+	                END::text as store_type,
+	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
+                p.store_id,
+                COALESCE(p.main_price, 0) as main_price,
+                p.strikethrough_price,
+	                COALESCE(p.stock_left, 0) as stock_left,
+                COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+                COALESCE(p.is_active, false) as is_active,
+                COALESCE(p.is_featured, false) as is_featured,
+                COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+                COALESCE(p.created_at, NOW()) as created_at,
+                COALESCE(p.updated_at, NOW()) as updated_at
 	            FROM products p
 	            LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
 	            WHERE p.product_uuid = $1 AND p.is_active = true

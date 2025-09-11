@@ -316,11 +316,11 @@ func (h *Handler) GetProducts(c *gin.Context) {
                 COALESCE(p.description_short, '') as description_short,
                 COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
-                COALESCE((CASE
+                CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type::text
-                    ELSE p.store_type::text
-                END), '') as store_type,
+                    THEN s.type
+                    ELSE p.store_type
+                END::text as store_type,
                 COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
                 COALESCE(p.main_price, 0) as main_price,
@@ -347,11 +347,11 @@ func (h *Handler) GetProducts(c *gin.Context) {
                 COALESCE(p.description_short, '') as description_short,
                 COALESCE(p.description_long, '') as description_long,
                 COALESCE(p.manufacturer_id, 0) as manufacturer_id,
-                COALESCE((CASE
+                CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type::text
-                    ELSE p.store_type::text
-                END), '') as store_type,
+                    THEN s.type
+                    ELSE p.store_type
+                END::text as store_type,
                 COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
                 COALESCE(p.main_price, 0) as main_price,

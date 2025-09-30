@@ -191,8 +191,8 @@ const CartListPage = () => {
 
       {/* Filters */}
       <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
+        <CardContent sx={{ overflowX: 'auto' }}>
+          <Grid container spacing={2} alignItems="center" sx={{ minWidth: 1100 }}>
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
@@ -279,8 +279,8 @@ const CartListPage = () => {
       {/* Carts Table */}
       <Card>
         <CardContent>
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 1000 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Cart ID</TableCell>

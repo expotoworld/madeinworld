@@ -91,7 +91,7 @@ class ProfileScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '+41791234567', // TODO: Get from user management system
+                            '+41791234567',
                             style: AppTextStyles.bodySmall,
                           ),
                           const SizedBox(height: 2),

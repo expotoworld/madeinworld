@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/expomadeinworld/madeinworld/order-service/internal/logging"
 	"github.com/expomadeinworld/madeinworld/order-service/internal/models"
 )
 
@@ -216,7 +217,7 @@ func (h *Handler) addItemToCart(ctx context.Context, userID string, miniAppType 
 // updateCartItemQuantity updates the quantity of an existing cart item
 func (h *Handler) updateCartItemQuantity(ctx context.Context, userID string, miniAppType models.MiniAppType, productID string, quantity int) error {
 	updateQuery := `
-		UPDATE carts 
+		UPDATE carts
 		SET quantity = $1, updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = $2 AND mini_app_type = $3 AND product_id = $4
 	`
@@ -236,7 +237,7 @@ func (h *Handler) updateCartItemQuantity(ctx context.Context, userID string, min
 // removeItemFromCart removes an item from the cart
 func (h *Handler) removeItemFromCart(ctx context.Context, userID string, miniAppType models.MiniAppType, productID string) error {
 	deleteQuery := `
-		DELETE FROM carts 
+		DELETE FROM carts
 		WHERE user_id = $1 AND mini_app_type = $2 AND product_id = $3
 	`
 
@@ -257,7 +258,7 @@ func (h *Handler) validateStockForCartAddition(ctx context.Context, userID strin
 	// Get current quantity in cart for this product
 	var currentQuantity int
 	checkQuery := `
-		SELECT COALESCE(quantity, 0) FROM carts 
+		SELECT COALESCE(quantity, 0) FROM carts
 		WHERE user_id = $1 AND mini_app_type = $2 AND product_id = $3
 	`
 
@@ -375,6 +376,9 @@ func (h *Handler) createOrder(ctx context.Context, userID string, miniAppType mo
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
+	// Resolve organization relationships for routing/notifications
+	partners, _ := h.getPartnersForStore(ctx, storeID)
+
 	// Create order items
 	var orderItems []models.OrderItem
 	for _, cartItem := range cartItems {
@@ -401,6 +405,25 @@ func (h *Handler) createOrder(ctx context.Context, userID string, miniAppType mo
 
 		orderItem.UnitPrice = unitPrice
 		orderItem.Product = cartItem.Product
+
+		// Resolve per-item organizations
+		var manufacturerID *string
+		if mID, err := h.getManufacturerForProductAndRegion(ctx, cartItem.ProductID, storeID); err == nil {
+			manufacturerID = mID
+		}
+		tplIDs, _ := h.getTPLsForProduct(ctx, cartItem.ProductID)
+
+		// Persist resolution
+		_, _ = tx.Exec(ctx, `
+			INSERT INTO order_item_org_links (order_item_id, product_id, manufacturer_org_id, tpl_org_ids, partner_org_ids)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (order_item_id) DO UPDATE SET
+				manufacturer_org_id = EXCLUDED.manufacturer_org_id,
+				tpl_org_ids = EXCLUDED.tpl_org_ids,
+				partner_org_ids = EXCLUDED.partner_org_ids,
+				updated_at = CURRENT_TIMESTAMP
+		`, orderItem.ID, orderItem.ProductID, manufacturerID, tplIDs, partners)
+
 		orderItems = append(orderItems, orderItem)
 	}
 
@@ -417,6 +440,29 @@ func (h *Handler) createOrder(ctx context.Context, userID string, miniAppType mo
 	}
 
 	order.Items = orderItems
+
+	// Publish JSON log events per order item with resolved orgs (dev-friendly publisher)
+	for _, it := range orderItems {
+		// Re-read persisted resolution for logging
+		var manufacturerID *string
+		var tplIDs []string
+		var partnerIDs []string
+		row := h.db.Pool.QueryRow(ctx, `
+			SELECT manufacturer_org_id::text, COALESCE(ARRAY(SELECT x::text FROM UNNEST(tpl_org_ids) x), ARRAY[]::text[]),
+			       COALESCE(ARRAY(SELECT x::text FROM UNNEST(partner_org_ids) x), ARRAY[]::text[])
+			FROM order_item_org_links WHERE order_item_id = $1
+		`, it.ID)
+		_ = row.Scan(&manufacturerID, &tplIDs, &partnerIDs)
+		logging.LogKV("event", "OrderItemOrgResolved", map[string]interface{}{
+			"order_id":            order.ID,
+			"order_item_id":       it.ID,
+			"product_id":          it.ProductID,
+			"manufacturer_org_id": manufacturerID,
+			"tpl_org_ids":         tplIDs,
+			"partner_org_ids":     partnerIDs,
+		})
+	}
+
 	return &order, nil
 }
 

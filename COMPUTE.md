@@ -36,4 +36,3 @@ Official compute path for the Made in World project.
 
 - Do not share databases between local and cloud. Create a dedicated Neon dev branch/DB for local.
 - Never commit real secrets. Store cloud secrets in AWS Secrets Manager; keep local secrets in untracked `.env` files.
-

@@ -25,14 +25,15 @@ const (
 
 // User represents a user in the system
 type User struct {
-	ID           string    `json:"id" db:"id"`
-	Username     string    `json:"username" db:"username"`
-	Email        string    `json:"email" db:"email"`
-	PasswordHash string    `json:"-" db:"password_hash"` // Never expose password hash in JSON
-	FirstName    *string   `json:"first_name,omitempty" db:"first_name"`
-	LastName     *string   `json:"last_name,omitempty" db:"last_name"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID         string    `json:"id" db:"id"`
+	Username   string    `json:"username" db:"username"`
+	Email      *string   `json:"email,omitempty" db:"email"`
+	Phone      *string   `json:"phone,omitempty" db:"phone"`
+	FirstName  *string   `json:"first_name,omitempty" db:"first_name"`
+	MiddleName *string   `json:"middle_name,omitempty" db:"middle_name"`
+	LastName   *string   `json:"last_name,omitempty" db:"last_name"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
 
 	// Additional computed fields for admin panel
 	FullName   string     `json:"full_name"`
@@ -65,21 +66,28 @@ type UserSearchParams struct {
 
 // UserCreateRequest represents user creation request
 type UserCreateRequest struct {
-	Username  string     `json:"username" binding:"required,min=3"`
-	Email     string     `json:"email" binding:"required,email"`
-	Password  string     `json:"password" binding:"required,min=8"`
-	FirstName *string    `json:"first_name,omitempty"`
-	LastName  *string    `json:"last_name,omitempty"`
-	Role      UserRole   `json:"role" binding:"required"`
-	Status    UserStatus `json:"status" binding:"required"`
+	Username   string  `json:"username" binding:"required,min=3"`
+	Email      string  `json:"email" binding:"required,email"`
+	Phone      *string `json:"phone,omitempty"`
+	FirstName  *string `json:"first_name,omitempty"`
+	MiddleName *string `json:"middle_name,omitempty"`
+
+	LastName *string    `json:"last_name,omitempty"`
+	Role     UserRole   `json:"role" binding:"required"`
+	Status   UserStatus `json:"status" binding:"required"`
 }
 
 // UserUpdateRequest represents user update request
+
 type UserUpdateRequest struct {
-	FullName *string     `json:"full_name,omitempty"`
-	Email    *string     `json:"email,omitempty"`
-	Role     *UserRole   `json:"role,omitempty"`
-	Status   *UserStatus `json:"status,omitempty"`
+	FullName   *string     `json:"full_name,omitempty"`
+	FirstName  *string     `json:"first_name,omitempty"`
+	MiddleName *string     `json:"middle_name,omitempty"`
+	LastName   *string     `json:"last_name,omitempty"`
+	Phone      *string     `json:"phone,omitempty"`
+	Email      *string     `json:"email,omitempty"`
+	Role       *UserRole   `json:"role,omitempty"`
+	Status     *UserStatus `json:"status,omitempty"`
 }
 
 // UserStatusUpdateRequest represents user status update request
@@ -103,8 +111,8 @@ type UserAnalytics struct {
 	ActiveUsers       int                     `json:"active_users"`
 	NewUsersToday     int                     `json:"new_users_today"`
 	NewUsersThisWeek  int                     `json:"new_users_this_week"`
-	UsersByRole       map[UserRole]int        `json:"users_by_role"`
-	UsersByStatus     map[UserStatus]int      `json:"users_by_status"`
+	UsersByRole       map[string]int          `json:"users_by_role"`
+	UsersByStatus     map[string]int          `json:"users_by_status"`
 	RegistrationTrend []RegistrationTrendItem `json:"registration_trend"`
 }
 

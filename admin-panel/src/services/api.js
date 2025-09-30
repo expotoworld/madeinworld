@@ -5,6 +5,8 @@ const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expom
 export const AUTH_BASE = `${API_BASE}/api/auth`;
 export const ADMIN_BASE = `${API_BASE}/api/admin`;
 export const CATALOG_BASE = `${API_BASE}/api/v1`;
+// Route manufacturer endpoints through the same gateway mount as admin -> order-service
+export const MANUFACTURER_BASE = `${API_BASE}/api/admin/manufacturer`;
 
 // Create axios instance with base configuration (Catalog API v1)
 const api = axios.create({
@@ -19,7 +21,7 @@ const api = axios.create({
 // Request interceptor for logging and auth
 api.interceptors.request.use(
   (config) => {
-    console.log(`Making ${config.method?.toUpperCase()} request to: ${config.url}`);
+    // request log suppressed (was verbose in dev)
 
     // Add authorization header if token exists
     const savedToken = localStorage.getItem('admin_token');
@@ -50,7 +52,6 @@ const getAuthHeaders = () => {
       const tokenData = JSON.parse(savedToken);
       if (tokenData.token) {
         return {
-          'X-Admin-Request': 'true',
           'Authorization': `Bearer ${tokenData.token}`
         };
       }
@@ -58,9 +59,7 @@ const getAuthHeaders = () => {
       console.error('Error parsing stored token:', error);
     }
   }
-  return {
-    'X-Admin-Request': 'true'
-  };
+  return {};
 };
 
 // Response interceptor for handling auth errors
@@ -84,18 +83,17 @@ api.interceptors.response.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    console.log(`Response from ${response.config.url}:`, response.status);
     return response;
   },
   (error) => {
     console.error('Response error:', error);
-    
+
     // Handle common error scenarios
     if (error.response) {
       // Server responded with error status
       const { status, data } = error.response;
       console.error(`API Error ${status}:`, data);
-      
+
       switch (status) {
         case 400:
           throw new Error(data.error || 'Bad request');
@@ -192,13 +190,19 @@ export const userService = {
 export const productService = {
   // Get all products
   getProducts: async (params = {}) => {
-    const response = await api.get('/products', { params });
+    const response = await api.get('/products', { params, headers: getAuthHeaders() });
+    return response.data;
+  },
+
+  // Get manufacturer-scoped products (authenticated non-admins)
+  getManufacturerProducts: async (params = {}) => {
+    const response = await api.get('/manufacturer/products', { params, headers: getAuthHeaders() });
     return response.data;
   },
 
   // Get single product by ID
   getProduct: async (id) => {
-    const response = await api.get(`/products/${id}`);
+    const response = await api.get(`/products/${id}`, { headers: getAuthHeaders() });
     return response.data;
   },
 
@@ -213,6 +217,15 @@ export const productService = {
     const response = await api.put(`/products/${productId}`, productData);
     return response.data;
   },
+
+	  // Validate shelf code uniqueness per store (real-time)
+	  validateShelfCode: async ({ store_id, shelf_code, product_id = null }) => {
+	    const params = { store_id, shelf_code };
+	    if (product_id) params.product_id = product_id;
+	    const response = await api.get('/products/validate-shelf-code', { params });
+	    return response.data; // expected shape: { valid: boolean }
+	  },
+
 
   // Delete product (soft delete by default)
   deleteProduct: async (productId, hardDelete = false) => {
@@ -275,23 +288,45 @@ export const categoryService = {
 };
 
 export const storeService = {
-  // Get all stores
+  // Get all stores (public read)
   getStores: async (params = {}) => {
     const response = await api.get('/stores', { params });
     return response.data;
   },
 
-  // Get stores by mini-app type (for dynamic filtering)
+  // Get stores by mini-app type (public read)
   getStoresByMiniApp: async (miniAppType) => {
     const params = { mini_app_type: miniAppType };
     const response = await api.get('/stores', { params });
     return response.data;
   },
 
-  // Get stores by specific store type
+  // Get stores by specific store type (public read)
   getStoresByType: async (storeType) => {
     const params = { type: storeType };
     const response = await api.get('/stores', { params });
+    return response.data;
+  },
+
+  // Admin writes
+  createStore: async (payload) => {
+    const response = await api.post('/stores', payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  updateStore: async (id, payload) => {
+    const response = await api.put(`/stores/${id}`, payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  deleteStore: async (id) => {
+    const response = await api.delete(`/stores/${id}`, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  uploadStoreImage: async (id, file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await api.post(`/stores/${id}/image`, formData, {
+      headers: { ...getAuthHeaders(), 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 };
@@ -419,6 +454,126 @@ export const cartService = {
     return response.data;
   },
 };
+
+// Manufacturer order service methods
+export const manufacturerOrderService = {
+  // Get manufacturer-scoped orders
+  getOrders: async (params = {}) => {
+    const response = await axios.get(`${MANUFACTURER_BASE}/orders`, {
+      params,
+      headers: getAuthHeaders()
+    });
+    return response.data;
+  },
+
+  // Get single order details (read-only)
+  getOrder: async (orderId) => {
+    const response = await axios.get(`${MANUFACTURER_BASE}/orders/${orderId}`, {
+      headers: getAuthHeaders()
+    });
+    return response.data;
+  },
+
+  // Update order status (only allowed for orders including their products)
+  updateOrderStatus: async (orderId, status, reason = '') => {
+    const response = await axios.put(`${MANUFACTURER_BASE}/orders/${orderId}/status`, {
+      status,
+      reason
+    }, {
+      headers: getAuthHeaders()
+    });
+    return response.data;
+  },
+};
+
+
+// Organization service methods
+export const orgService = {
+  getOrganizations: async (orgType = null) => {
+    const params = {};
+    if (orgType) params.org_type = orgType;
+    const response = await api.get('/organizations', { params, headers: getAuthHeaders() });
+    return response.data;
+  },
+  createOrganization: async (payload) => {
+    const response = await api.post('/organizations', payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  updateOrganization: async (id, payload) => {
+    const response = await api.put(`/organizations/${id}`, payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  deleteOrganization: async (id) => {
+    const response = await api.delete(`/organizations/${id}`, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  getOrganizationUsers: async (orgId) => {
+    const response = await api.get(`/organizations/${orgId}/users`, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  setOrganizationUsers: async (orgId, assignments) => {
+    const response = await api.post(`/organizations/${orgId}/users`, { assignments }, { headers: getAuthHeaders() });
+    return response.data;
+  },
+};
+
+// Regions service methods
+export const regionService = {
+  getRegions: async () => {
+    const response = await api.get('/regions', { headers: getAuthHeaders() });
+    return response.data;
+  },
+  createRegion: async (payload) => {
+    const response = await api.post('/regions', payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  updateRegion: async (id, payload) => {
+    const response = await api.put(`/regions/${id}`, payload, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  deleteRegion: async (id) => {
+    const response = await api.delete(`/regions/${id}`, { headers: getAuthHeaders() });
+    return response.data;
+  },
+};
+
+// Relationship management
+export const relationshipService = {
+  manageProductSourcing: async (productId, mappings) => {
+    const response = await api.post(`/products/${productId}/sourcing`, { mappings }, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  manageProductLogistics: async (productId, mappings) => {
+    const response = await api.post(`/products/${productId}/logistics`, { mappings }, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  getProductSourcing: async (productId) => {
+    const response = await api.get(`/products/${productId}/sourcing`, { headers: getAuthHeaders() });
+    return response.data; // { mappings: [ { manufacturer_org_id, region_id, name } ] }
+  },
+  getProductLogistics: async (productId) => {
+    const response = await api.get(`/products/${productId}/logistics`, { headers: getAuthHeaders() });
+    return response.data; // { mappings: [ { tpl_org_id, name } ] }
+  },
+  getStorePartners: async (storeId) => {
+    const response = await api.get(`/stores/${storeId}/partners`, { headers: getAuthHeaders() });
+    return response.data;
+  },
+  // Batch fetch partners for multiple stores
+  getStorePartnersBatch: async (storeIds = []) => {
+    const ids = (storeIds || []).filter(Boolean).join(',');
+    const response = await api.get(`/store-partners`, {
+      params: { store_ids: ids },
+      headers: getAuthHeaders(),
+    });
+    return response.data; // { results: { "7": { partners: [...] }, ... } }
+  },
+  manageStorePartners: async (storeId, mappings) => {
+    const response = await api.post(`/stores/${storeId}/partners`, { mappings }, { headers: getAuthHeaders() });
+    return response.data;
+  },
+};
+
 
 // Export the axios instance as default for custom requests
 export default api;

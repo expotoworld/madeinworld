@@ -39,6 +39,7 @@ import {
   Email as EmailIcon,
   CalendarToday as CalendarIcon,
   TrendingUp as TrendingUpIcon,
+  PhoneIphone as PhoneIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
 import { userService } from '../services/api';
@@ -57,7 +58,7 @@ const UserListPage = () => {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [analytics, setAnalytics] = useState(null);
-  
+
   // Menu and dialog states
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -70,15 +71,15 @@ const UserListPage = () => {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
-    password: '',
     first_name: '',
+    middle_name: '',
     last_name: '',
     role: 'Customer',
     status: 'active'
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  
+
   const { showToast } = useToast();
 
   // User roles and statuses
@@ -187,8 +188,9 @@ const UserListPage = () => {
       user_id: userToEdit.id, // Store the user ID for later use (backend uses 'id' field)
       username: userToEdit.username || '',
       email: userToEdit.email || '',
-      password: '', // Don't populate password for security
+      phone: userToEdit.phone || '',
       first_name: userToEdit.first_name || '',
+      middle_name: userToEdit.middle_name || '',
       last_name: userToEdit.last_name || '',
       role: userToEdit.role || 'Customer',
       status: userToEdit.status || 'active'
@@ -209,8 +211,9 @@ const UserListPage = () => {
     setFormData({
       username: '',
       email: '',
-      password: '',
+      phone: '',
       first_name: '',
+      middle_name: '',
       last_name: '',
       role: 'Customer',
       status: 'active'
@@ -236,11 +239,6 @@ const UserListPage = () => {
     if (!formData.username.trim()) errors.username = 'Username is required';
     if (!formData.email.trim()) errors.email = 'Email is required';
 
-    // Password validation only for create, not edit
-    if (!isEdit) {
-      if (!formData.password.trim()) errors.password = 'Password is required';
-      if (formData.password.length < 8) errors.password = 'Password must be at least 8 characters';
-    }
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -281,17 +279,15 @@ const UserListPage = () => {
       // Transform frontend form data to backend expected format
       const updateData = {};
 
-      // Combine first_name and last_name into full_name
-      if (formData.first_name || formData.last_name) {
-        const fullName = `${formData.first_name || ''} ${formData.last_name || ''}`.trim();
-        if (fullName) {
-          updateData.full_name = fullName;
-        }
-      }
+      // Send name parts individually (backend composes full_name server-side)
+      if (formData.first_name !== undefined) updateData.first_name = formData.first_name;
+      if (formData.middle_name !== undefined) updateData.middle_name = formData.middle_name;
+      if (formData.last_name !== undefined) updateData.last_name = formData.last_name;
 
-      if (formData.email) updateData.email = formData.email;
-      if (formData.role) updateData.role = formData.role;
-      if (formData.status) updateData.status = formData.status;
+      if (formData.email !== undefined) updateData.email = formData.email;
+      if (formData.phone !== undefined) updateData.phone = formData.phone;
+      if (formData.role !== undefined) updateData.role = formData.role;
+      if (formData.status !== undefined) updateData.status = formData.status;
 
       await userService.updateUser(formData.user_id, updateData);
       showToast('User updated successfully', 'success');
@@ -345,7 +341,8 @@ const UserListPage = () => {
   // Format date
   const formatDate = (dateString) => {
     if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString();
+    const d = new Date(dateString);
+    return d.toLocaleString();
   };
 
   // Table columns configuration
@@ -353,6 +350,7 @@ const UserListPage = () => {
     { id: 'username', label: 'Username', sortable: true },
     { id: 'full_name', label: 'Name', sortable: true },
     { id: 'email', label: 'Email', sortable: true },
+    { id: 'phone', label: 'Phone Number', sortable: true },
     { id: 'role', label: 'Role', sortable: true },
     { id: 'status', label: 'Status', sortable: false },
     { id: 'created_at', label: 'Joined', sortable: true },
@@ -531,7 +529,7 @@ const UserListPage = () => {
       {/* Users Table */}
       <Paper>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table sx={{ minWidth: 800 }}>
+          <Table sx={{ minWidth: 1000 }}>
             <TableHead>
               <TableRow>
                 {columns.map((column) => (
@@ -570,6 +568,12 @@ const UserListPage = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} />
                       {user.email || 'N/A'}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <PhoneIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                      {user.phone || 'N/A'}
                     </Box>
                   </TableCell>
                   <TableCell>
@@ -667,16 +671,12 @@ const UserListPage = () => {
                 required
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => handleFormChange('password', e.target.value)}
-                error={!!formErrors.password}
-                helperText={formErrors.password}
-                required
+                label="Phone"
+                value={formData.phone || ''}
+                onChange={(e) => handleFormChange('phone', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -685,6 +685,14 @@ const UserListPage = () => {
                 label="First Name"
                 value={formData.first_name}
                 onChange={(e) => handleFormChange('first_name', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Middle Name"
+                value={formData.middle_name}
+                onChange={(e) => handleFormChange('middle_name', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -774,9 +782,25 @@ const UserListPage = () => {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
+                label="Phone"
+                value={formData.phone || ''}
+                onChange={(e) => handleFormChange('phone', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
                 label="First Name"
                 value={formData.first_name}
                 onChange={(e) => handleFormChange('first_name', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Middle Name"
+                value={formData.middle_name}
+                onChange={(e) => handleFormChange('middle_name', e.target.value)}
               />
             </Grid>
             <Grid item xs={12} sm={6}>

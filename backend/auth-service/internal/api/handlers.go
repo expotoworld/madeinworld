@@ -20,13 +20,17 @@ import (
 
 // Handler holds the database connection and handles HTTP requests
 type Handler struct {
-	DB *db.Database
+	DB    *db.Database
+	Email *services.EmailService
+	SMS   *services.SmsService
 }
 
 // NewHandler creates a new handler instance
-func NewHandler(database *db.Database) *Handler {
+func NewHandler(database *db.Database, email *services.EmailService, sms *services.SmsService) *Handler {
 	return &Handler{
-		DB: database,
+		DB:    database,
+		Email: email,
+		SMS:   sms,
 	}
 }
 
@@ -58,132 +62,26 @@ func (h *Handler) Health(c *gin.Context) {
 
 // Signup handles user registration (DEPRECATED - use email verification instead)
 func (h *Handler) Signup(c *gin.Context) {
-	// Add deprecation warning to response headers
 	c.Header("X-Deprecated", "true")
-	c.Header("X-Deprecation-Message", "Password-based signup is deprecated. Use /api/auth/send-verification instead.")
-
-	var req models.SignupRequest
-
-	// Bind and validate request
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Error:   "Invalid request data",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Create user
-	user, err := h.DB.CreateUser(ctx, req)
-	if err != nil {
-		// Check if it's a duplicate email error
-		if isDuplicateEmailError(err) {
-			c.JSON(http.StatusConflict, models.ErrorResponse{
-				Error:   "Email already exists",
-				Message: "A user with this email address already exists",
-			})
-			return
-		}
-
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-			Error:   "Failed to create user",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	// Generate JWT token
-	token, err := h.generateJWTToken(user.ID, user.Email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-			Error:   "Failed to generate token",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	// Return success response
-	c.JSON(http.StatusCreated, models.AuthResponse{
-		Token: token,
-		User:  *user,
+	c.Header("X-Deprecation-Message", "Password-based signup is disabled. Use /api/auth/send-user-verification and /api/auth/verify-user-code instead.")
+	c.JSON(http.StatusGone, models.ErrorResponse{
+		Error:   "Endpoint deprecated",
+		Message: "Password-based signup is disabled. Use email verification endpoints instead.",
 	})
 }
 
 // Login handles user authentication (DEPRECATED - use email verification instead)
 func (h *Handler) Login(c *gin.Context) {
-	// Add deprecation warning to response headers
 	c.Header("X-Deprecated", "true")
-	c.Header("X-Deprecation-Message", "Password-based login is deprecated. Use /api/auth/send-verification instead.")
-
-	var req models.LoginRequest
-
-	// Bind and validate request
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Error:   "Invalid request data",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Get user by email
-	user, err := h.DB.GetUserByEmail(ctx, req.Email)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
-				Error:   "Invalid credentials",
-				Message: "Email or password is incorrect",
-			})
-			return
-		}
-
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-			Error:   "Failed to authenticate user",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	// Validate password
-	if err := h.DB.ValidatePassword(user.PasswordHash, req.Password); err != nil {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse{
-			Error:   "Invalid credentials",
-			Message: "Email or password is incorrect",
-		})
-		return
-	}
-
-	// Update last login timestamp
-	if err := h.DB.UpdateLastLogin(ctx, user.ID); err != nil {
-		// Log the error but don't fail the login
-		fmt.Printf("Failed to update last login for user %s: %v\n", user.ID, err)
-	}
-
-	// Generate JWT token
-	token, err := h.generateJWTToken(user.ID, user.Email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-			Error:   "Failed to generate token",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	// Return success response
-	c.JSON(http.StatusOK, models.AuthResponse{
-		Token: token,
-		User:  *user,
+	c.Header("X-Deprecation-Message", "Password-based login is disabled. Use /api/auth/send-user-verification and /api/auth/verify-user-code instead.")
+	c.JSON(http.StatusGone, models.ErrorResponse{
+		Error:   "Endpoint deprecated",
+		Message: "Password-based login is disabled. Use email verification endpoints instead.",
 	})
 }
 
 // generateJWTToken creates a JWT token for the user
-func (h *Handler) generateJWTToken(userID string, email string) (string, error) {
+func (h *Handler) generateJWTToken(userID string, email string, role string) (string, error) {
 	// Get JWT secret from environment
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
@@ -204,6 +102,27 @@ func (h *Handler) generateJWTToken(userID string, email string) (string, error) 
 		"email":   email,
 		"exp":     time.Now().Add(time.Hour * time.Duration(expirationHours)).Unix(),
 		"iat":     time.Now().Unix(),
+	}
+	if role != "" {
+		claims["role"] = role
+	}
+
+	// Enrich with org memberships
+	if h.DB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if orgs, err := h.DB.GetOrgMembershipsByUserID(ctx, userID); err == nil {
+			arr := make([]map[string]string, 0, len(orgs))
+			for _, m := range orgs {
+				arr = append(arr, map[string]string{
+					"org_id":   m.OrgID,
+					"org_type": m.OrgType,
+					"org_role": m.OrgRole,
+					"name":     m.Name,
+				})
+			}
+			claims["org_memberships"] = arr
+		}
 	}
 
 	// Create token
@@ -276,9 +195,10 @@ func (h *Handler) Refresh(c *gin.Context) {
 
 	userID, _ := claims["user_id"].(string)
 	email, _ := claims["email"].(string)
+	roleStr, _ := claims["role"].(string)
 
 	// Generate new token
-	newToken, err := h.generateJWTToken(userID, email)
+	newToken, err := h.generateJWTToken(userID, email, roleStr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to generate token",
@@ -481,7 +401,14 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 	}
 
 	// Send email
-	emailService := services.NewEmailService()
+	if h.Email == nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "Email service unavailable",
+			Message: "Email service not configured",
+		})
+		return
+	}
+	emailService := h.Email
 	emailData := models.EmailVerificationData{
 		Code:         code,
 		Email:        req.Email,
@@ -625,7 +552,11 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 	}
 
 	// Generate JWT token
-	token, err := h.generateJWTToken(user.ID, user.Email)
+	emailStr := ""
+	if user.Email != nil {
+		emailStr = *user.Email
+	}
+	token, err := h.generateJWTToken(user.ID, emailStr, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to generate token",
@@ -648,4 +579,207 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 		ExpiresAt: tokenExpiresAt,
 		User:      *user,
 	})
+}
+
+// UserSendPhoneVerification handles sending verification codes via SMS for user login/registration
+func (h *Handler) UserSendPhoneVerification(c *gin.Context) {
+	var req models.SendPhoneVerificationRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid request data",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	phone := strings.TrimSpace(req.Phone)
+	if !isValidE164(phone) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "Invalid phone format",
+			Message: "Phone number must be in E.164 format, e.g., +12065550100",
+		})
+		return
+	}
+	if h.SMS == nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "SMS service unavailable",
+			Message: "SMS service not configured",
+		})
+		return
+	}
+
+	clientIP := getClientIP(c)
+	userAgent := c.GetHeader("User-Agent")
+	fmt.Printf("[USER_AUTH][PHONE] Verification request from IP: %s, Phone: %s, UserAgent: %s\n", clientIP, phone, userAgent)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	maxRequests := getEnvInt("RATE_LIMIT_REQUESTS_PER_HOUR", 5)
+	rateLimited, err := h.DB.CheckUserRateLimit(ctx, clientIP, maxRequests, 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Rate limit check failed", Message: err.Error()})
+		return
+	}
+	if rateLimited {
+		c.JSON(http.StatusTooManyRequests, models.ErrorResponse{
+			Error:   "Rate limit exceeded",
+			Message: fmt.Sprintf("Maximum %d requests per hour allowed", maxRequests),
+		})
+		return
+	}
+
+	code, err := generateVerificationCode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate verification code", Message: err.Error()})
+		return
+	}
+	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to process verification code", Message: err.Error()})
+		return
+	}
+
+	expirationMinutes := getEnvInt("CODE_EXPIRATION_MINUTES", 10)
+	expiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+
+	if cleanErr := h.DB.CleanupExpiredPhoneCodes(ctx); cleanErr != nil {
+		fmt.Printf("[USER_AUTH][PHONE] Cleanup before phone code creation failed: %v\n", cleanErr)
+	}
+
+	verificationCode, err := h.DB.CreateUserPhoneVerificationCode(ctx, phone, string(codeHash), clientIP, expiresAt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to store verification code", Message: err.Error()})
+		return
+	}
+
+	if err := h.DB.IncrementUserRateLimit(ctx, clientIP); err != nil {
+		fmt.Printf("Failed to increment user rate limit: %v\n", err)
+	}
+
+	message := fmt.Sprintf("Your Made in World verification code is: %s. This code expires in %d minutes. If you didn't request this, please ignore.", code, expirationMinutes)
+	if err := h.SMS.SendSMS(ctx, phone, message); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to send SMS", Message: err.Error()})
+		return
+	}
+
+	fmt.Printf("[USER_AUTH][PHONE] Verification code sent successfully to %s from IP: %s\n", phone, clientIP)
+
+	if cleanErr := h.DB.CleanupExpiredPhoneCodes(ctx); cleanErr != nil {
+		fmt.Printf("[USER_AUTH][PHONE] Cleanup after phone code send failed: %v\n", cleanErr)
+	}
+
+	c.JSON(http.StatusOK, models.SendUserVerificationResponse{
+		Message:   "Verification code sent successfully",
+		ExpiresAt: verificationCode.ExpiresAt,
+	})
+}
+
+// UserVerifyPhoneCode handles phone verification code validation and JWT generation for users
+func (h *Handler) UserVerifyPhoneCode(c *gin.Context) {
+	var req models.VerifyPhoneCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request data", Message: err.Error()})
+		return
+	}
+
+	phone := strings.TrimSpace(req.Phone)
+	if !isValidE164(phone) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid phone format", Message: "Phone number must be in E.164 format"})
+		return
+	}
+
+	clientIP := getClientIP(c)
+	userAgent := c.GetHeader("User-Agent")
+	fmt.Printf("[USER_AUTH][PHONE] Code verification attempt from IP: %s, Phone: %s, UserAgent: %s\n", clientIP, phone, userAgent)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	verificationCode, err := h.DB.GetUserPhoneVerificationCode(ctx, phone)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid or expired code", Message: "No valid verification code found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to retrieve verification code", Message: err.Error()})
+		return
+	}
+
+	maxAttempts := getEnvInt("MAX_CODE_ATTEMPTS", 3)
+	if verificationCode.Attempts >= maxAttempts {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Maximum attempts exceeded", Message: fmt.Sprintf("Code has exceeded maximum %d attempts", maxAttempts)})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(verificationCode.CodeHash), []byte(req.Code)); err != nil {
+		if updateErr := h.DB.UpdateUserPhoneVerificationCodeAttempts(ctx, verificationCode.ID); updateErr != nil {
+			fmt.Printf("Failed to update user phone attempt count: %v\n", updateErr)
+		}
+		fmt.Printf("[USER_AUTH][PHONE] FAILED verification attempt from IP: %s, Phone: %s, Attempts: %d\n", clientIP, phone, verificationCode.Attempts+1)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid verification code", Message: "The provided code is incorrect"})
+		return
+	}
+
+	if err := h.DB.MarkUserPhoneVerificationCodeUsed(ctx, verificationCode.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to mark code as used", Message: err.Error()})
+		return
+	}
+
+	user, err := h.DB.GetUserByPhone(ctx, phone)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			user, err = h.DB.CreateUserFromPhone(ctx, phone)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create user account", Message: err.Error()})
+				return
+			}
+			fmt.Printf("[USER_AUTH][PHONE] Auto-registered new user: %s\n", phone)
+		} else {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to retrieve user", Message: err.Error()})
+			return
+		}
+	}
+
+	if err := h.DB.UpdateLastLogin(ctx, user.ID); err != nil {
+		fmt.Printf("Failed to update last login for user %s: %v\n", user.ID, err)
+	}
+
+	emailStr := ""
+	if user.Email != nil {
+		emailStr = *user.Email
+	}
+	token, err := h.generateJWTToken(user.ID, emailStr, "")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate token", Message: err.Error()})
+		return
+	}
+
+	expirationHours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
+	tokenExpiresAt := time.Now().Add(time.Duration(expirationHours) * time.Hour)
+
+	fmt.Printf("[USER_AUTH][PHONE] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n", phone, clientIP, tokenExpiresAt.Format("2006-01-02 15:04:05"))
+
+	c.JSON(http.StatusOK, models.VerifyUserCodeResponse{
+		Token:     token,
+		ExpiresAt: tokenExpiresAt,
+		User:      *user,
+	})
+}
+
+// isValidE164 validates E.164 phone numbers like +12065550100
+func isValidE164(phone string) bool {
+	if len(phone) < 2 || len(phone) > 16 {
+		return false
+	}
+	if phone[0] != '+' {
+		return false
+	}
+	for i := 1; i < len(phone); i++ {
+		if phone[i] < '0' || phone[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

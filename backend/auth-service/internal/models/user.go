@@ -6,15 +6,15 @@ import (
 
 // User represents a user in the system
 type User struct {
-	ID           string    `json:"id" db:"id"`
-	Username     string    `json:"username" db:"username"`
-	Email        string    `json:"email" db:"email"`
-	PasswordHash string    `json:"-" db:"password_hash"` // Never expose password hash in JSON
-	Phone        *string   `json:"phone,omitempty" db:"phone"`
-	FirstName    *string   `json:"first_name,omitempty" db:"first_name"`
-	LastName     *string   `json:"last_name,omitempty" db:"last_name"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	ID         string    `json:"id" db:"id"`
+	Username   string    `json:"username" db:"username"`
+	Email      *string   `json:"email,omitempty" db:"email"`
+	Phone      *string   `json:"phone,omitempty" db:"phone"`
+	FirstName  *string   `json:"first_name,omitempty" db:"first_name"`
+	MiddleName *string   `json:"middle_name,omitempty" db:"middle_name"`
+	LastName   *string   `json:"last_name,omitempty" db:"last_name"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // SignupRequest represents the request payload for user registration
@@ -93,4 +93,27 @@ type VerifyUserCodeResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	User      User      `json:"user"`
+}
+
+// UserPhoneVerificationCode represents a phone verification code for user authentication
+type UserPhoneVerificationCode struct {
+	ID          string    `json:"id" db:"id"`
+	PhoneNumber string    `json:"phone_number" db:"phone_number"`
+	CodeHash    string    `json:"-" db:"code_hash"` // Never expose code hash
+	Attempts    int       `json:"attempts" db:"attempts"`
+	ExpiresAt   time.Time `json:"expires_at" db:"expires_at"`
+	Used        bool      `json:"used" db:"used"`
+	IPAddress   string    `json:"ip_address,omitempty" db:"ip_address"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+// SendPhoneVerificationRequest represents the request to send a phone verification code
+type SendPhoneVerificationRequest struct {
+	Phone string `json:"phone" binding:"required"`
+}
+
+// VerifyPhoneCodeRequest represents the request to verify a phone code
+type VerifyPhoneCodeRequest struct {
+	Phone string `json:"phone" binding:"required"`
+	Code  string `json:"code" binding:"required,len=6"`
 }

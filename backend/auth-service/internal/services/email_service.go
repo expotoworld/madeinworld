@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/models"
 )
 
@@ -21,13 +22,20 @@ type EmailService struct {
 	fromEmail    string
 }
 
-// NewEmailService creates a new email service instance
-func NewEmailService() *EmailService {
+// NewEmailService creates a new email service instance with service-specific config
+func NewEmailService(cfg aws.Config) *EmailService {
+	region := cfg.Region
+	if region == "" {
+		region = os.Getenv("SES_AWS_REGION")
+		if region == "" {
+			region = "eu-central-1"
+		}
+	}
 	return &EmailService{
-		smtpHost:     fmt.Sprintf("email-smtp.%s.amazonaws.com", os.Getenv("AWS_DEFAULT_REGION")),
+		smtpHost:     fmt.Sprintf("email-smtp.%s.amazonaws.com", region),
 		smtpPort:     "587",
-		smtpUsername: os.Getenv("AWS_ACCESS_KEY_ID"),
-		smtpPassword: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		smtpUsername: os.Getenv("SES_AWS_ACCESS_KEY_ID"),
+		smtpPassword: os.Getenv("SES_AWS_SECRET_ACCESS_KEY"),
 		fromEmail:    os.Getenv("SES_FROM_EMAIL"),
 	}
 }

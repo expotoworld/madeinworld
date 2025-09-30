@@ -31,6 +31,8 @@ import {
   Avatar,
   Tooltip,
 } from '@mui/material';
+import ImagePreviewModal from '../components/ImagePreviewModal';
+
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -54,6 +56,10 @@ const CategoryListPage = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [openDialog, setOpenDialog] = useState(false);
   const [openSubcategoryDialog, setOpenSubcategoryDialog] = useState(false);
+  // Image preview modal
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewCtx, setPreviewCtx] = useState(null); // { mode, entity }
+
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingSubcategory, setEditingSubcategory] = useState(null);
   const [selectedCategoryForSubcategory, setSelectedCategoryForSubcategory] = useState(null);
@@ -586,11 +592,19 @@ const CategoryListPage = () => {
                         <Box display="flex" alignItems="center" width="100%">
                           <Avatar
                             src={store.image_url ? `${(process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com')}${store.image_url}` : ''}
+                            variant="rounded"
                             sx={{
                               width: 32,
                               height: 32,
                               mr: 2,
-                              bgcolor: typeInfo.color
+                              bgcolor: typeInfo.color,
+                              cursor: 'pointer'
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setPreviewCtx({ mode: 'store', entity: { id: store.id, image_url: store.image_url } });
+                              setPreviewOpen(true);
                             }}
                           >
                             <StoreIcon />
@@ -646,7 +660,15 @@ const CategoryListPage = () => {
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Box display="flex" alignItems="center" width="100%">
-                    <Avatar src={resolveImageUrl(category.image_url)} sx={{ mr: 2, width: 40, height: 40 }}>
+                    <Avatar
+                      src={resolveImageUrl(category.image_url)}
+                      sx={{ mr: 2, width: 40, height: 40, cursor: 'pointer' }}
+                      variant="rounded"
+                      onClick={() => {
+                        setPreviewCtx({ mode: 'category', entity: { id: category.id, image_url: category.image_url } });
+                        setPreviewOpen(true);
+                      }}
+                    >
                       <CategoryIcon />
                     </Avatar>
                     <Box flexGrow={1}>
@@ -702,7 +724,12 @@ const CategoryListPage = () => {
                           <ListItem key={subcategory.id}>
                             <Avatar
                               src={resolveImageUrl(subcategory.image_url)}
-                              sx={{ mr: 2, width: 40, height: 40 }}
+                              sx={{ mr: 2, width: 40, height: 40, cursor: 'pointer' }}
+                              variant="rounded"
+                              onClick={() => {
+                                setPreviewCtx({ mode: 'subcategory', entity: { id: subcategory.id, image_url: subcategory.image_url } });
+                                setPreviewOpen(true);
+                              }}
                             >
                               <SubcategoryIcon />
                             </Avatar>
@@ -895,6 +922,16 @@ const CategoryListPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Image Preview / Manage Modal */}
+      <ImagePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        mode={previewCtx?.mode}
+        entity={previewCtx?.entity}
+        onUpdated={fetchCategories}
+      />
+
     </Box>
   );
 };

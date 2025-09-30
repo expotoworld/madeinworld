@@ -118,6 +118,17 @@ func (p *Product) HasStock() bool {
 }
 
 // Request/Response models
+// OrderItemOrgLink persists resolved organizations per order item
+// Note: organization IDs are UUID strings
+type OrderItemOrgLink struct {
+	OrderItemID       string    `json:"order_item_id" db:"order_item_id"`
+	ProductID         string    `json:"product_id" db:"product_id"`
+	ManufacturerOrgID *string   `json:"manufacturer_org_id,omitempty" db:"manufacturer_org_id"`
+	TplOrgIDs         []string  `json:"tpl_org_ids,omitempty" db:"tpl_org_ids"`
+	PartnerOrgIDs     []string  `json:"partner_org_ids,omitempty" db:"partner_org_ids"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+}
 
 // AddToCartRequest represents a request to add an item to cart
 type AddToCartRequest struct {

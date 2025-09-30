@@ -85,43 +85,87 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 	// API routes
 	v1 := router.Group("/api/v1")
 	{
-		// Product endpoints
+		// Parse JWT if present to expose role info for read endpoints
+		v1.Use(api.OptionalAuthMiddleware())
+
+		// Product endpoints (public)
 		v1.GET("/products", handler.GetProducts)
 		v1.GET("/products/:id", handler.GetProduct)
-		// --- NEW ROUTES ---
-		v1.POST("/products", handler.CreateProduct)
-		v1.PUT("/products/:id", handler.UpdateProduct)
-		v1.DELETE("/products/:id", handler.DeleteProduct)
-		v1.POST("/products/:id/image", handler.UploadProductImage)
-		v1.POST("/products/:id/images", handler.UploadProductImages)
-		v1.GET("/products/:id/images", handler.GetProductImages)
-		v1.PUT("/products/:id/images/reorder", handler.ReorderProductImages)
-		v1.DELETE("/products/:id/images/:image_id", handler.DeleteProductImage)
-		v1.PUT("/products/:id/images/:image_id/primary", handler.SetPrimaryImage)
 
-		// Category endpoints
+		// Manufacturer scoped (authenticated)
+		man := v1.Group("/manufacturer")
+		man.Use(api.AuthMiddleware())
+		{
+			man.GET("/products", handler.GetManufacturerProducts)
+		}
+
+		// Validation endpoints (public)
+		v1.GET("/products/validate-shelf-code", handler.ValidateShelfCode)
+
+		// Category endpoints (public reads)
 		v1.GET("/categories", handler.GetCategories)
-		v1.POST("/categories", handler.CreateCategory)
-		v1.PUT("/categories/:id", handler.UpdateCategory)
-		v1.DELETE("/categories/:id", handler.DeleteCategory)
 		v1.GET("/categories/:id/subcategories", handler.GetSubcategories)
-		v1.POST("/categories/:id/subcategories", handler.CreateSubcategory)
 
-		// Subcategory endpoints
-		v1.PUT("/subcategories/:id", handler.UpdateSubcategory)
-		v1.DELETE("/subcategories/:id", handler.DeleteSubcategory)
-		v1.POST("/subcategories/:id/image", handler.UploadSubcategoryImage)
-
-		// Store endpoints
+		// Store endpoints (public reads)
 		v1.GET("/stores", handler.GetStores)
-		v1.POST("/stores", handler.CreateStore)
-		v1.PUT("/stores/:id", handler.UpdateStore)
-		v1.DELETE("/stores/:id", handler.DeleteStore)
-		v1.POST("/stores/:id/image", handler.UploadStoreImage)
 
-		// Admin maintenance endpoints
-		v1.POST("/admin/cleanup-s3", handler.AdminCleanupS3)
+		// Protected admin endpoints
+		admin := v1.Group("")
+		admin.Use(api.AuthMiddleware(), api.AdminMiddleware())
+		{
+			// Products (write + images)
+			admin.POST("/products", handler.CreateProduct)
+			admin.PUT("/products/:id", handler.UpdateProduct)
+			admin.DELETE("/products/:id", handler.DeleteProduct)
+			admin.POST("/products/:id/image", handler.UploadProductImage)
+			admin.POST("/products/:id/images", handler.UploadProductImages)
+			admin.GET("/products/:id/images", handler.GetProductImages)
+			admin.PUT("/products/:id/images/reorder", handler.ReorderProductImages)
+			admin.DELETE("/products/:id/images/:image_id", handler.DeleteProductImage)
+			admin.PUT("/products/:id/images/:image_id/primary", handler.SetPrimaryImage)
 
+			// Categories/Subcategories (write)
+			admin.POST("/categories", handler.CreateCategory)
+			admin.PUT("/categories/:id", handler.UpdateCategory)
+			admin.DELETE("/categories/:id", handler.DeleteCategory)
+			admin.POST("/categories/:id/subcategories", handler.CreateSubcategory)
+			admin.PUT("/subcategories/:id", handler.UpdateSubcategory)
+			admin.DELETE("/subcategories/:id", handler.DeleteSubcategory)
+			admin.POST("/subcategories/:id/image", handler.UploadSubcategoryImage)
+
+			// Stores (write)
+			admin.POST("/stores", handler.CreateStore)
+			admin.PUT("/stores/:id", handler.UpdateStore)
+			admin.DELETE("/stores/:id", handler.DeleteStore)
+			admin.POST("/stores/:id/image", handler.UploadStoreImage)
+
+			// Organizations & Regions & Relationship mappings
+			admin.GET("/organizations", handler.GetOrganizations)
+			admin.POST("/organizations", handler.CreateOrganization)
+			admin.PUT("/organizations/:id", handler.UpdateOrganization)
+			admin.DELETE("/organizations/:id", handler.DeleteOrganization)
+			admin.GET("/organizations/:id/users", handler.GetOrganizationUsers)
+			admin.POST("/organizations/:id/users", handler.SetOrganizationUsers)
+
+			admin.GET("/regions", handler.ListRegions)
+			admin.POST("/regions", handler.CreateRegion)
+			admin.PUT("/regions/:id", handler.UpdateRegion)
+			admin.DELETE("/regions/:id", handler.DeleteRegion)
+
+			admin.POST("/products/:id/sourcing", handler.SetProductSourcing)
+			admin.POST("/products/:id/logistics", handler.SetProductLogistics)
+			admin.GET("/products/:id/sourcing", handler.GetProductSourcing)
+			admin.GET("/products/:id/logistics", handler.GetProductLogistics)
+
+			admin.GET("/stores/:id/partners", handler.GetStorePartners)
+			// Batch partners for multiple stores
+			admin.GET("/store-partners", handler.GetStorePartnersBatch)
+
+			admin.POST("/stores/:id/partners", handler.SetStorePartners)
+
+			// Admin maintenance endpoints
+			admin.POST("/admin/cleanup-s3", handler.AdminCleanupS3)
+		}
 	}
 
 	// Root endpoint for basic info

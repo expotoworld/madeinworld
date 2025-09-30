@@ -19,13 +19,14 @@ import {
   StepLabel,
   FormControlLabel,
   Switch,
+  Autocomplete,
 } from '@mui/material';
 
-import { productService, storeService, categoryService } from '../services/api';
+import api, { productService, storeService, categoryService, orgService, relationshipService } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 import ImageCarousel from './ImageCarousel';
 
-const steps = ['Basic Details', 'Categorization & Settings', 'Image Management'];
+const steps = ['Product Details', 'Image Management'];
 
 const ProductForm = ({ open, onClose, onProductCreated, product = null, onProductUpdated }) => {
   const { showSuccess, showError } = useToast();
@@ -40,6 +41,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     title: '',
     sku: '',
     description_long: '',
+    weight: '1',
     main_price: '',
     strikethrough_price: '',
     cost_price: '',
@@ -49,11 +51,16 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     // Step 2 - Categorization & Settings
     mini_app_type: '零售门店',
     store_id: null,
+    shelf_code: '',
     category_ids: [],
     subcategory_ids: [],
     is_featured: false,
     is_mini_app_recommendation: false,
     is_active: true,
+
+    // Org assignments (single selection)
+    manufacturer_org_id: '',
+    tpl_org_id: '',
   });
 
   // Step 3 - Image Management
@@ -67,6 +74,14 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
   const [subcategories, setSubcategories] = useState([]);
   const [loadingStores, setLoadingStores] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  // Organizations for sourcing/logistics
+  const [manufacturers, setManufacturers] = useState([]);
+  const [tpls, setTpls] = useState([]);
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
+
+  const [shelfCodeError, setShelfCodeError] = useState('');
+  const [shelfCodeChecking, setShelfCodeChecking] = useState(false);
+
   const [loadingSubcategories, setLoadingSubcategories] = useState(false);
 
   // Mini-app type options (memoized to stabilize dependencies)
@@ -186,20 +201,8 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
   // Load existing product images when editing
   const loadProductImages = async (productId) => {
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images`, {
-        method: 'GET',
-        headers: {
-        },
-      });
-
-      if (response.ok) {
-        const images = await response.json();
-        setProductImages(images || []);
-      } else {
-        console.warn('No images found for product:', productId);
-        setProductImages([]);
-      }
+      const { data } = await api.get(`/products/${productId}/images`);
+      setProductImages(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error loading product images:', error);
       setProductImages([]);
@@ -241,6 +244,41 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     setSubcategories([]);
   };
 
+  // Real-time shelf code validation (debounced)
+  useEffect(() => {
+    const requiresStore = ['无人商店', '展销展消'].includes(formData.mini_app_type);
+    if (!requiresStore || !formData.store_id) {
+      setShelfCodeError('');
+      return;
+    }
+    const code = (formData.shelf_code || '').trim();
+    if (!code) {
+      setShelfCodeError('');
+      return;
+    }
+    setShelfCodeChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await productService.validateShelfCode({
+          store_id: formData.store_id,
+          shelf_code: code,
+          product_id: productId,
+        });
+        if (result && result.valid === false) {
+          setShelfCodeError('Shelf code already exists for this store');
+        } else {
+          setShelfCodeError('');
+        }
+      } catch (e) {
+        // Fail-open: do not block user if validation endpoint not available
+        setShelfCodeError('');
+      } finally {
+        setShelfCodeChecking(false);
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [formData.mini_app_type, formData.store_id, formData.shelf_code, productId]);
+
   // Load categories when mini-app type changes or on mount
   useEffect(() => {
     loadCategories(formData.mini_app_type);
@@ -254,6 +292,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         title: product.title || '',
         sku: product.sku || '',
         description_long: product.description_long || '',
+        weight: (product.weight != null ? product.weight.toString() : '1'),
         main_price: product.main_price || '',
         strikethrough_price: product.strikethrough_price || '',
         cost_price: product.cost_price || '',
@@ -261,6 +300,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         minimum_order_quantity: product.minimum_order_quantity || 1,
         mini_app_type: frontendMiniAppType,
         store_id: product.store_id || null,
+        shelf_code: product.shelf_code || '',
         category_ids: product.category_ids || [],
         subcategory_ids: product.subcategory_ids || [],
         is_featured: product.is_featured || false,
@@ -276,11 +316,34 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       if (['无人商店', '展销展消'].includes(frontendMiniAppType)) {
         loadStores(frontendMiniAppType);
       }
+
+	      // Prefill existing sourcing/logistics assignments when editing
+	      (async () => {
+	        try {
+	          const [sourcing, logistics] = await Promise.all([
+	            relationshipService.getProductSourcing(product.id).catch(() => null),
+	            relationshipService.getProductLogistics(product.id).catch(() => null),
+	          ]);
+	          const firstManufacturer = sourcing?.mappings?.[0]?.manufacturer_org_id || '';
+	          const firstTpl = logistics?.mappings?.[0]?.tpl_org_id || '';
+	          if (firstManufacturer || firstTpl) {
+	            setFormData(prev => ({
+	              ...prev,
+	              manufacturer_org_id: firstManufacturer,
+	              tpl_org_id: firstTpl,
+	            }));
+	          }
+	        } catch (e) {
+	          console.warn('Failed to prefill assignments', e);
+	        }
+	      })();
+
     } else if (!product && open) {
       setFormData({
         title: '',
         sku: '',
         description_long: '',
+        weight: '1',
         main_price: '',
         strikethrough_price: '',
         cost_price: '',
@@ -288,7 +351,9 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         minimum_order_quantity: 1,
         mini_app_type: '零售门店',
         store_id: null,
+        shelf_code: '',
         category_ids: [],
+
         subcategory_ids: [],
         is_featured: false,
         is_mini_app_recommendation: false,
@@ -316,22 +381,9 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         formData.append('images', file);
       });
 
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images`, {
-        method: 'POST',
-        headers: {
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        await response.text(); // consume body for better error context (optional)
-        throw new Error(`Failed to upload images: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      setProductImages(prev => [...prev, ...result.images]);
-      showSuccess(`${result.images.length} image(s) uploaded successfully`);
+      const { data } = await api.post(`/products/${productId}/images`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setProductImages(prev => [...prev, ...data.images]);
+      showSuccess(`${data.images.length} image(s) uploaded successfully`);
     } catch (error) {
       console.error('Error uploading images:', error);
       showError(`Failed to upload images: ${error.message}`);
@@ -345,17 +397,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     if (!productId) return;
 
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images/${imageId}`, {
-        method: 'DELETE',
-        headers: {
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete image');
-      }
-
+      await api.delete(`/products/${productId}/images/${imageId}`);
       setProductImages(prev => prev.filter(img => img.id !== imageId));
       showSuccess('Image deleted successfully');
     } catch (error) {
@@ -374,19 +416,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         display_order: index + 1,
       }));
 
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images/reorder`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ image_orders: imageOrders }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reorder images');
-      }
-
+      await api.put(`/products/${productId}/images/reorder`, { image_orders: imageOrders });
       setProductImages(reorderedImages);
       showSuccess('Images reordered successfully');
     } catch (error) {
@@ -400,17 +430,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
     if (!productId) return;
 
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images/${imageId}/primary`, {
-        method: 'PUT',
-        headers: {
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to set primary image');
-      }
-
+      await api.put(`/products/${productId}/images/${imageId}/primary`);
       setProductImages(prev => prev.map(img => ({
         ...img,
         is_primary: img.id === imageId,
@@ -421,6 +441,31 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       showError('Failed to set primary image');
     }
   };
+  // Load organizations when entering Step 2
+  useEffect(() => {
+    if (!open) return;
+    if (activeStep !== 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingOrgs(true);
+        const [m, l] = await Promise.all([
+          orgService.getOrganizations('Manufacturer'),
+          orgService.getOrganizations('3PL'),
+        ]);
+        if (!cancelled) {
+          setManufacturers(m?.organizations || []);
+          setTpls(l?.organizations || []);
+        }
+      } catch (e) {
+        console.error('Failed to load organizations', e);
+      } finally {
+        if (!cancelled) setLoadingOrgs(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, activeStep]);
+
 
   // Handle Step 1: Basic Details validation
   const handleStep1Submit = () => {
@@ -428,8 +473,14 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       setError(null);
 
       // Validate required fields for Step 1
-      if (!formData.title || !formData.sku || !formData.main_price) {
+      if (!formData.title || !formData.sku || !formData.main_price || !formData.weight) {
         throw new Error('Please fill in all required fields');
+      }
+
+      // Validate weight >= 1 gram
+      const weightVal = parseFloat(formData.weight);
+      if (isNaN(weightVal) || weightVal < 1) {
+        throw new Error('Product weight must be at least 1 gram');
       }
 
       // Validate minimum order quantity
@@ -455,6 +506,15 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       if (selectedMiniAppType?.requiresStore && !formData.store_id) {
         throw new Error('Please select a store for this mini-app type');
       }
+      if (selectedMiniAppType?.requiresStore && formData.store_id) {
+        const code = (formData.shelf_code || '').trim();
+        if (!code) {
+          throw new Error('Please enter a shelf code');
+        }
+        if (shelfCodeError) {
+          throw new Error('Shelf code must be unique for the selected store');
+        }
+      }
 
       // Map mini-app type to backend values
       const miniAppTypeMap = {
@@ -469,18 +529,18 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       if (formData.mini_app_type === '无人商店') {
         // For unmanned stores, store_type should be derived from selected store
         const selectedStore = stores.find(store => store.id === parseInt(formData.store_id));
-        storeType = selectedStore ? selectedStore.type : '无人门店'; // fallback
+        storeType = selectedStore ? selectedStore.type : '无人门店'; // fallback within unmanned context
       } else if (formData.mini_app_type === '展销展消') {
         // For exhibition sales, store_type should be derived from selected store
         const selectedStore = stores.find(store => store.id === parseInt(formData.store_id));
-        storeType = selectedStore ? selectedStore.type : '展销商店'; // fallback
+        storeType = selectedStore ? selectedStore.type : '展销商店'; // fallback within exhibition context
       } else {
-        // For retail store and group buying, store_type is not the primary identifier
-        // Set a default value but the mini_app_type will be the primary identifier
-        storeType = '展销商店'; // default fallback for database compatibility
+        // For 零售门店 and 团购团批, store_type must be NULL
+        storeType = null;
       }
 
       // Prepare data for API
+      const requiresStore = miniAppTypes.find(t => t.value === formData.mini_app_type)?.requiresStore;
       const productData = {
         ...formData,
         main_price: parseFloat(formData.main_price),
@@ -490,12 +550,13 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         cost_price: formData.cost_price
           ? parseFloat(formData.cost_price)
           : null,
+        weight: formData.weight ? parseFloat(formData.weight) : 1,
         stock_left: parseInt(formData.stock_left) || 0,
         minimum_order_quantity: parseInt(formData.minimum_order_quantity) || 1,
-        manufacturer_id: 1, // Default manufacturer for now
         mini_app_type: miniAppTypeMap[formData.mini_app_type],
         store_type: storeType,
         store_id: formData.store_id ? parseInt(formData.store_id) : null,
+        shelf_code: requiresStore && formData.store_id ? (formData.shelf_code?.trim() || null) : null,
         is_active: formData.is_active,
         category_ids: formData.category_ids,
         subcategory_ids: formData.subcategory_ids,
@@ -516,14 +577,62 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       if (product) {
         // Update existing product
         response = await productService.updateProduct(product.id, productData);
+        // Apply sourcing/logistics assignments
+        try {
+          const pid = product.id;
+          const selectedStore = stores.find(s => s.id === parseInt(formData.store_id));
+          const regionId = selectedStore?.region_id || null;
+          const promises = [];
+          if (formData.manufacturer_org_id && regionId) {
+            promises.push(
+              relationshipService.manageProductSourcing(pid, [{ region_id: regionId, manufacturer_org_id: formData.manufacturer_org_id }])
+            );
+          }
+          if (formData.tpl_org_id) {
+            promises.push(
+              relationshipService.manageProductLogistics(pid, [{ tpl_org_id: formData.tpl_org_id }])
+            );
+          }
+          if (promises.length) await Promise.all(promises);
+        } catch (e) {
+          console.warn('Assignments update failed (non-blocking):', e);
+        }
+        // Fetch fresh product to reflect latest values (e.g., cost_price) without page refresh
+        try {
+          const fresh = await productService.getProduct(product.id);
+          if (onProductUpdated) onProductUpdated(fresh);
+        } catch (e) {
+          console.warn('Could not fetch fresh product after update:', e);
+          if (onProductUpdated) onProductUpdated();
+        }
         showSuccess('Product updated successfully! Now manage images.');
-        setActiveStep(2); // Move to Step 3 (Image Management)
+        setActiveStep(1); // Move to Step 2 (Image Management)
       } else {
         // Create new product
         response = await productService.createProduct(productData);
-        setProductId(response.product_id);
+        const pid = response.product_id;
+        setProductId(pid);
+        // Apply sourcing/logistics assignments
+        try {
+          const selectedStore = stores.find(s => s.id === parseInt(formData.store_id));
+          const regionId = selectedStore?.region_id || null;
+          const promises = [];
+          if (formData.manufacturer_org_id && regionId) {
+            promises.push(
+              relationshipService.manageProductSourcing(pid, [{ region_id: regionId, manufacturer_org_id: formData.manufacturer_org_id }])
+            );
+          }
+          if (formData.tpl_org_id) {
+            promises.push(
+              relationshipService.manageProductLogistics(pid, [{ tpl_org_id: formData.tpl_org_id }])
+            );
+          }
+          if (promises.length) await Promise.all(promises);
+        } catch (e) {
+          console.warn('Assignments update failed (non-blocking):', e);
+        }
         showSuccess('Product created successfully! Now add images.');
-        setActiveStep(2); // Move to Step 3 (Image Management)
+        setActiveStep(1); // Move to Step 2 (Image Management)
       }
 
     } catch (err) {
@@ -567,6 +676,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       title: '',
       sku: '',
       description_long: '',
+      weight: '1',
       main_price: '',
       strikethrough_price: '',
       cost_price: '',
@@ -574,11 +684,14 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
       minimum_order_quantity: 1,
       mini_app_type: '零售门店',
       store_id: null,
+      shelf_code: '',
       category_ids: [],
       subcategory_ids: [],
       is_featured: false,
       is_mini_app_recommendation: false,
       is_active: true,
+      manufacturer_org_id: '',
+      tpl_org_id: '',
     });
     setProductId(null);
     setProductImages([]);
@@ -652,6 +765,8 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
 
             <TextField
               label="Product Description"
+
+
               value={formData.description_long}
               onChange={handleInputChange('description_long')}
               fullWidth
@@ -659,6 +774,18 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
               rows={3}
               disabled={loading}
               helperText="Detailed description for product"
+            />
+
+
+            <TextField
+              label="Product Weight (grams) *"
+              value={formData.weight}
+              onChange={handleInputChange('weight')}
+              type="number"
+              inputProps={{ step: '0.01', min: '1' }}
+              fullWidth
+              disabled={loading}
+              helperText="grams"
             />
 
             {/* Pricing Section */}
@@ -698,6 +825,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
               />
             </Box>
 
+
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label="Stock Quantity"
@@ -718,14 +846,14 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
                 inputProps={{ min: '1' }}
                 fullWidth
                 disabled={loading}
-                helperText="Minimum units customers must purchase (e.g., 4 if sold in 4-packs)"
+                helperText="Minimum order quantity"
               />
             </Box>
           </Box>
         )}
 
-        {/* Step 2: Categorization & Settings */}
-        {activeStep === 1 && (
+        {/* Product Details: Categorization & Settings */}
+        {activeStep === 0 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
             <Typography variant="h6" sx={{ mb: 1 }}>Mini-App Configuration</Typography>
 
@@ -813,6 +941,31 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
               </FormControl>
             )}
 
+            {/* Shelf Code (only for store-based mini-apps) */}
+            {miniAppTypes.find(type => type.value === formData.mini_app_type)?.requiresStore && formData.store_id && (
+              <TextField
+                label="Shelf Code"
+                value={formData.shelf_code}
+                onChange={handleInputChange('shelf_code')}
+                required
+                inputProps={{ maxLength: 50 }}
+                fullWidth
+                disabled={loading}
+                error={Boolean(shelfCodeError)}
+                helperText={
+                  shelfCodeError
+                    ? shelfCodeError
+                    : (shelfCodeChecking
+                        ? 'Checking...'
+                        : ((formData.shelf_code || '').trim() ? 'Available • Unique per store' : 'Unique per store'))
+                }
+                FormHelperTextProps={{
+                  sx: { color: shelfCodeError ? 'error.main' : (shelfCodeChecking ? 'text.secondary' : 'success.main') }
+                }}
+              />
+            )}
+
+
             {/* Main Page Featured Toggle - Only for 无人商店 and 展销展消 */}
             {['无人商店', '展销展消'].includes(formData.mini_app_type) && (
               <Box sx={{ mt: 2 }}>
@@ -830,6 +983,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
                         Add to 热门推荐 (Main Page Featured)
                       </Typography>
+
                       <Typography variant="body2" color="text.secondary">
                         Featured products appear prominently in the main app
                       </Typography>
@@ -891,11 +1045,41 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
                 sx={{ alignItems: 'flex-start' }}
               />
             </Box>
+
+	            {/* Organization Assignments */}
+	            <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Organization Assignments</Typography>
+
+	            <Autocomplete
+	              options={manufacturers}
+	              getOptionLabel={(option) => option?.name || ''}
+	              loading={loadingOrgs}
+	              value={manufacturers.find(o => o.org_id === formData.manufacturer_org_id) || null}
+	              onChange={(_, newValue) => setFormData({ ...formData, manufacturer_org_id: newValue ? newValue.org_id : '' })}
+	              renderInput={(params) => (
+	                <TextField {...params} label="Manufacturer" placeholder="Search manufacturers..." fullWidth />
+	              )}
+	              disabled={loading}
+	            />
+
+	            <Box sx={{ mt: 2 }} />
+
+	            <Autocomplete
+	              options={tpls}
+	              getOptionLabel={(option) => option?.name || ''}
+	              loading={loadingOrgs}
+	              value={tpls.find(o => o.org_id === formData.tpl_org_id) || null}
+	              onChange={(_, newValue) => setFormData({ ...formData, tpl_org_id: newValue ? newValue.org_id : '' })}
+	              renderInput={(params) => (
+	                <TextField {...params} label="3PL" placeholder="Search 3PL organizations..." fullWidth />
+	              )}
+	              disabled={loading}
+	            />
+
           </Box>
         )}
 
-        {/* Step 3: Image Management */}
-        {activeStep === 2 && (
+        {/* Step 2: Image Management */}
+        {activeStep === 1 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
               Product Images
@@ -917,6 +1101,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         )}
       </DialogContent>
 
+
       <DialogActions sx={{ p: 3, pt: 1 }}>
         <Button onClick={handleClose} disabled={loading}>
           Cancel
@@ -936,16 +1121,6 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
         {activeStep === 0 && (
           <Button
             variant="contained"
-            onClick={handleStep1Submit}
-            disabled={loading || !formData.title || !formData.sku || !formData.main_price}
-          >
-            Next: Categorization
-          </Button>
-        )}
-
-        {activeStep === 1 && (
-          <Button
-            variant="contained"
             onClick={handleStep2Submit}
             disabled={loading}
             startIcon={loading ? <CircularProgress size={20} /> : null}
@@ -957,7 +1132,8 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
           </Button>
         )}
 
-        {activeStep === 2 && (
+
+        {activeStep === 1 && (
           <Button
             variant="contained"
             onClick={handleStep3Submit}

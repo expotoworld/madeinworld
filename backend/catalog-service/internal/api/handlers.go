@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 
@@ -103,6 +104,51 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"product_id": productID})
 }
 
+// ValidateShelfCode handles GET /products/validate-shelf-code to check uniqueness per store
+func (h *Handler) ValidateShelfCode(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	storeIDStr := c.Query("store_id")
+	shelfCode := strings.TrimSpace(c.Query("shelf_code"))
+	if storeIDStr == "" || shelfCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "store_id and shelf_code are required"})
+		return
+	}
+	storeID, err := strconv.Atoi(storeIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid store_id"})
+		return
+	}
+
+	var excludeID *int
+	if pid := c.Query("product_id"); pid != "" {
+		if v, err := strconv.Atoi(pid); err == nil {
+			excludeID = &v
+		}
+	}
+
+	var count int
+	if excludeID != nil {
+		err = h.db.Pool.QueryRow(ctx,
+			"SELECT COUNT(1) FROM products WHERE store_id = $1 AND shelf_code = $2 AND product_id != $3",
+			storeID, shelfCode, *excludeID,
+		).Scan(&count)
+	} else {
+		err = h.db.Pool.QueryRow(ctx,
+			"SELECT COUNT(1) FROM products WHERE store_id = $1 AND shelf_code = $2",
+			storeID, shelfCode,
+		).Scan(&count)
+	}
+	if err != nil {
+		log.Printf("Failed to validate shelf code: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate shelf code"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"valid": count == 0})
+}
+
 // UploadProductImage handles POST /products/:id/image
 func (h *Handler) UploadProductImage(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second) // Longer timeout for uploads
@@ -201,6 +247,7 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 
 	// Get product ID from URL
 	idStr := c.Param("id")
+	log.Printf("[UpdateProduct] PUT /products/%s - starting", idStr)
 
 	productID, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -211,20 +258,32 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 	// Parse request body
 	var updatedProduct models.Product
 	if err := c.ShouldBindJSON(&updatedProduct); err != nil {
+		log.Printf("[UpdateProduct] bind error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 		return
 	}
 
+	log.Printf("[UpdateProduct] payload id=%d sku=%s mini_app_type=%s store_type=%s store_id=%v stock_left=%d moq=%d",
+		productID,
+		updatedProduct.SKU,
+		updatedProduct.MiniAppType,
+		updatedProduct.StoreType,
+		updatedProduct.StoreID,
+		updatedProduct.StockLeft,
+		updatedProduct.MinimumOrderQuantity,
+	)
+
 	// Update the product in the database
 	if err := h.db.UpdateProduct(ctx, productID, updatedProduct); err != nil {
-		log.Printf("Failed to update product %d: %v", productID, err)
+		log.Printf("[UpdateProduct] db error for product %d: %v", productID, err)
 		if err.Error() == fmt.Sprintf("product with ID %d not found", productID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product", "details": err.Error()})
 		}
 		return
 	}
+	log.Printf("[UpdateProduct] success id=%d", productID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "Product updated successfully",
@@ -296,11 +355,8 @@ func (h *Handler) GetProducts(c *gin.Context) {
 	featured := c.Query("featured")
 	storeID := c.Query("store_id")
 
-	// Check if this is an admin request (for internal admin panel use)
-	isAdminRequest := c.GetHeader("X-Admin-Request") == "true"
-
-	// Debug logging
-	log.Printf("🔍 DEBUG: GetProducts called with params - storeType: %s, miniAppType: %s, featured: %s, storeID: %s, isAdmin: %t", storeType, miniAppType, featured, storeID, isAdminRequest)
+	// Check if this is an admin request based on JWT role (for admin panel use)
+	isAdminRequest := IsAdmin(c)
 
 	// Build the query - include cost_price only for admin requests
 	// For location-dependent mini-apps (UnmannedStore, ExhibitionSales), we need to JOIN with stores table
@@ -313,19 +369,20 @@ func (h *Handler) GetProducts(c *gin.Context) {
                 p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
                 CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type
-                    ELSE p.store_type
-                END::text as store_type,
+                    THEN s.type::text
+                    ELSE p.store_type::text
+                END as store_type,
                 COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
+                p.shelf_code,
                 COALESCE(p.main_price, 0) as main_price,
                 p.strikethrough_price,
                 p.cost_price,
+                COALESCE(p.weight, 1.00) as weight,
                 COALESCE(p.stock_left, 0) as stock_left,
                 COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
                 COALESCE(p.is_active, false) as is_active,
@@ -344,18 +401,18 @@ func (h *Handler) GetProducts(c *gin.Context) {
                 p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
                 CASE
                     WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-                    THEN s.type
-                    ELSE p.store_type
-                END::text as store_type,
+                    THEN s.type::text
+                    ELSE p.store_type::text
+                END as store_type,
                 COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
                 COALESCE(p.main_price, 0) as main_price,
                 p.strikethrough_price,
+                COALESCE(p.weight, 1.00) as weight,
                 COALESCE(p.stock_left, 0) as stock_left,
                 COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
                 COALESCE(p.is_active, false) as is_active,
@@ -420,10 +477,6 @@ func (h *Handler) GetProducts(c *gin.Context) {
 
 	query += " ORDER BY p.product_id"
 
-	// Debug logging for final query
-	log.Printf("🔍 DEBUG: Final products query: %s", query)
-	log.Printf("🔍 DEBUG: Query args: %v", args)
-
 	// Execute query
 	rows, err := h.db.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -448,13 +501,15 @@ func (h *Handler) GetProducts(c *gin.Context) {
 				&product.Title,
 				&product.DescriptionShort,
 				&product.DescriptionLong,
-				&product.ManufacturerID,
 				&storeType,
 				&product.MiniAppType,
 				&product.StoreID,
+				&product.ShelfCode,
 				&product.MainPrice,
 				&product.StrikethroughPrice,
 				&product.CostPrice,
+				&product.Weight,
+
 				&product.StockLeft,
 				&product.MinimumOrderQuantity,
 				&product.IsActive,
@@ -471,12 +526,12 @@ func (h *Handler) GetProducts(c *gin.Context) {
 				&product.Title,
 				&product.DescriptionShort,
 				&product.DescriptionLong,
-				&product.ManufacturerID,
 				&storeType,
 				&product.MiniAppType,
 				&product.StoreID,
 				&product.MainPrice,
 				&product.StrikethroughPrice,
+				&product.Weight,
 				&product.StockLeft,
 				&product.MinimumOrderQuantity,
 				&product.IsActive,
@@ -524,17 +579,6 @@ func (h *Handler) GetProducts(c *gin.Context) {
 			product.SubcategoryIds = subcategories
 		}
 
-		// Get stock quantity for unmanned stores and warehouses
-		if product.StoreType == models.StoreTypeUnmannedStore || product.StoreType == models.StoreTypeUnmannedWarehouse {
-			stockQuantity, err := h.getProductStock(ctx, product.ID, storeID)
-			if err != nil {
-				log.Printf("Error getting stock for product %d: %v", product.ID, err)
-				// Continue without stock info rather than failing
-			} else {
-				product.StockQuantity = stockQuantity
-			}
-		}
-
 		// Add product to the list regardless of admin/public request
 		// The conversion to public format will happen later
 		products = append(products, product)
@@ -546,21 +590,7 @@ func (h *Handler) GetProducts(c *gin.Context) {
 		return
 	}
 
-	// Debug logging for results
-	log.Printf("🔍 DEBUG: Found %d products", len(products))
-	if len(products) > 0 {
-		recommendedCount := 0
-		featuredCount := 0
-		for _, product := range products {
-			if product.IsMiniAppRecommendation {
-				recommendedCount++
-			}
-			if product.IsFeatured {
-				featuredCount++
-			}
-		}
-		log.Printf("🔍 DEBUG: Product breakdown - Recommended: %d, Featured: %d, Total: %d", recommendedCount, featuredCount, len(products))
-	}
+	// Results ready
 
 	if isAdminRequest {
 		// Ensure we return an empty array instead of null when no products exist
@@ -585,8 +615,8 @@ func (h *Handler) GetProduct(c *gin.Context) {
 
 	idStr := c.Param("id")
 
-	// Check if this is an admin request
-	isAdminRequest := c.GetHeader("X-Admin-Request") == "true"
+	// Check if this is an admin request based on JWT role
+	isAdminRequest := IsAdmin(c)
 
 	// Try to parse as integer first, if that fails, treat as UUID
 	var query string
@@ -601,19 +631,20 @@ func (h *Handler) GetProduct(c *gin.Context) {
 	                p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-	                    THEN s.type
-	                    ELSE p.store_type
-	                END::text as store_type,
+	                    THEN s.type::text
+	                    ELSE p.store_type::text
+	                END as store_type,
 	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
+                p.shelf_code,
                 COALESCE(p.main_price, 0) as main_price,
                 p.strikethrough_price,
 	                p.cost_price,
+                COALESCE(p.weight, 1.00) as weight,
                 COALESCE(p.stock_left, 0) as stock_left,
                 COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
                 COALESCE(p.is_active, false) as is_active,
@@ -631,14 +662,13 @@ func (h *Handler) GetProduct(c *gin.Context) {
 	                p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-	                    THEN s.type
-	                    ELSE p.store_type
-	                END::text as store_type,
+	                    THEN s.type::text
+	                    ELSE p.store_type::text
+	                END as store_type,
 	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
                 COALESCE(p.main_price, 0) as main_price,
@@ -664,19 +694,22 @@ func (h *Handler) GetProduct(c *gin.Context) {
 	                p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-	                    THEN s.type
-	                    ELSE p.store_type
-	                END::text as store_type,
+	                    THEN s.type::text
+	                    ELSE p.store_type::text
+	                END as store_type,
 	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
+                p.shelf_code,
+
                 COALESCE(p.main_price, 0) as main_price,
                 p.strikethrough_price,
 	                p.cost_price,
+                COALESCE(p.weight, 1.00) as weight,
+
                 COALESCE(p.stock_left, 0) as stock_left,
                 COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
                 COALESCE(p.is_active, false) as is_active,
@@ -686,6 +719,8 @@ func (h *Handler) GetProduct(c *gin.Context) {
                 COALESCE(p.updated_at, NOW()) as updated_at
 	            FROM products p
 	            LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales')
+
+
 	            WHERE p.product_uuid = $1 AND p.is_active = true
 	        `
 		} else {
@@ -694,18 +729,19 @@ func (h *Handler) GetProduct(c *gin.Context) {
 	                p.product_id, p.product_uuid,
                 COALESCE(p.sku, '') as sku,
                 COALESCE(p.title, '') as title,
-                COALESCE(p.description_short, '') as description_short,
-                COALESCE(p.description_long, '') as description_long,
-	                COALESCE(p.manufacturer_id, 0) as manufacturer_id,
+                '' as description_short,
+                COALESCE(p.description, '') as description_long,
 	                CASE
 	                    WHEN p.mini_app_type IN ('UnmannedStore', 'ExhibitionSales') AND s.type IS NOT NULL
-	                    THEN s.type
-	                    ELSE p.store_type
-	                END::text as store_type,
+	                    THEN s.type::text
+	                    ELSE p.store_type::text
+	                END as store_type,
 	                COALESCE(p.mini_app_type::text, '') as mini_app_type,
                 p.store_id,
                 COALESCE(p.main_price, 0) as main_price,
                 p.strikethrough_price,
+                COALESCE(p.weight, 1.00) as weight,
+
 	                COALESCE(p.stock_left, 0) as stock_left,
                 COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
                 COALESCE(p.is_active, false) as is_active,
@@ -732,13 +768,14 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			&product.Title,
 			&product.DescriptionShort,
 			&product.DescriptionLong,
-			&product.ManufacturerID,
 			&storeType,
 			&product.MiniAppType,
 			&product.StoreID,
+			&product.ShelfCode,
 			&product.MainPrice,
 			&product.StrikethroughPrice,
 			&product.CostPrice,
+			&product.Weight,
 			&product.StockLeft,
 			&product.MinimumOrderQuantity,
 			&product.IsActive,
@@ -755,12 +792,12 @@ func (h *Handler) GetProduct(c *gin.Context) {
 			&product.Title,
 			&product.DescriptionShort,
 			&product.DescriptionLong,
-			&product.ManufacturerID,
 			&storeType,
 			&product.MiniAppType,
 			&product.StoreID,
 			&product.MainPrice,
 			&product.StrikethroughPrice,
+			&product.Weight,
 			&product.StockLeft,
 			&product.MinimumOrderQuantity,
 			&product.IsActive,
@@ -804,17 +841,6 @@ func (h *Handler) GetProduct(c *gin.Context) {
 		product.SubcategoryIds = []string{}
 	} else {
 		product.SubcategoryIds = subcategories
-	}
-
-	// Get stock quantity for unmanned stores and warehouses
-	if product.StoreType == models.StoreTypeUnmannedStore || product.StoreType == models.StoreTypeUnmannedWarehouse {
-		storeID := c.Query("store_id")
-		stockQuantity, err := h.getProductStock(ctx, product.ID, storeID)
-		if err != nil {
-			log.Printf("Error getting stock for product %d: %v", product.ID, err)
-		} else {
-			product.StockQuantity = stockQuantity
-		}
 	}
 
 	if isAdminRequest {
@@ -1039,14 +1065,14 @@ func (h *Handler) GetStores(c *gin.Context) {
 	if userLat != "" && userLng != "" && orderByDistance {
 		query = `
             SELECT
-                store_id, name, city, address, latitude, longitude, type, image_url, is_active, created_at, updated_at,
+                store_id, name, city, address, latitude, longitude, type, region_id, image_url, is_active, created_at, updated_at,
                 (6371 * acos(cos(radians($1)) * cos(radians(latitude)) * cos(radians(longitude) - radians($2)) + sin(radians($1)) * sin(radians(latitude)))) AS distance_km
             FROM stores
             WHERE is_active = true
         `
 	} else {
 		query = `
-            SELECT store_id, name, city, address, latitude, longitude, type, image_url, is_active, created_at, updated_at
+            SELECT store_id, name, city, address, latitude, longitude, type, region_id, image_url, is_active, created_at, updated_at
             FROM stores
             WHERE is_active = true
         `
@@ -1113,6 +1139,7 @@ func (h *Handler) GetStores(c *gin.Context) {
 				&store.Latitude,
 				&store.Longitude,
 				&store.Type,
+				&store.RegionID,
 				&store.ImageURL,
 				&store.IsActive,
 				&store.CreatedAt,
@@ -1133,6 +1160,7 @@ func (h *Handler) GetStores(c *gin.Context) {
 				&store.Latitude,
 				&store.Longitude,
 				&store.Type,
+				&store.RegionID,
 				&store.ImageURL,
 				&store.IsActive,
 				&store.CreatedAt,
@@ -1887,29 +1915,34 @@ func (h *Handler) CreateStore(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	var newStore models.Store
-	if err := c.ShouldBindJSON(&newStore); err != nil {
+	type createStorePayload struct {
+		models.Store
+		PartnerOrgID *string `json:"partner_org_id"`
+	}
+	var payload createStorePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 		return
 	}
 
 	query := `
-        INSERT INTO stores (name, city, address, latitude, longitude, type, image_url, is_active)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO stores (name, city, address, latitude, longitude, type, region_id, image_url, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING store_id, created_at, updated_at
     `
 
 	var storeID int
 	var createdAt, updatedAt time.Time
 	err := h.db.Pool.QueryRow(ctx, query,
-		newStore.Name,
-		newStore.City,
-		newStore.Address,
-		newStore.Latitude,
-		newStore.Longitude,
-		newStore.Type,
-		newStore.ImageURL,
-		newStore.IsActive,
+		payload.Name,
+		payload.City,
+		payload.Address,
+		payload.Latitude,
+		payload.Longitude,
+		payload.Type,
+		payload.RegionID,
+		payload.ImageURL,
+		payload.IsActive,
 	).Scan(&storeID, &createdAt, &updatedAt)
 
 	if err != nil {
@@ -1918,11 +1951,35 @@ func (h *Handler) CreateStore(c *gin.Context) {
 		return
 	}
 
-	newStore.ID = storeID
-	newStore.CreatedAt = createdAt
-	newStore.UpdatedAt = updatedAt
+	// Optionally set partner mapping (single assignment)
+	if payload.PartnerOrgID != nil {
+		partner := strings.TrimSpace(*payload.PartnerOrgID)
+		if partner == "" {
+			_ = h.db.SetStorePartners(ctx, storeID, []models.StorePartner{})
+		} else {
+			var orgType string
+			if err := h.db.Pool.QueryRow(ctx, `SELECT org_type::text FROM organizations WHERE org_id = $1`, partner).Scan(&orgType); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Selected organization not found"})
+				return
+			}
+			if orgType != string(models.OrgTypePartner) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Selected organization is not of type 'Partner'"})
+				return
+			}
+			if err := h.db.SetStorePartners(ctx, storeID, []models.StorePartner{{StoreID: storeID, PartnerOrgID: partner}}); err != nil {
+				log.Printf("Failed to assign partner to store %d: %v", storeID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign partner organization"})
+				return
+			}
+		}
+	}
 
-	c.JSON(http.StatusCreated, newStore)
+	payload.ID = storeID
+	payload.CreatedAt = createdAt
+	payload.UpdatedAt = updatedAt
+
+	// Return the Store portion to keep response consistent
+	c.JSON(http.StatusCreated, payload.Store)
 }
 
 // UpdateStore handles PUT /stores/:id
@@ -1932,40 +1989,105 @@ func (h *Handler) UpdateStore(c *gin.Context) {
 
 	storeID := c.Param("id")
 
-	var updatedStore models.Store
-	if err := c.ShouldBindJSON(&updatedStore); err != nil {
+	// Validate store ID
+	sid, err := strconv.Atoi(storeID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid store id"})
+		return
+	}
+
+	// Read and log raw body for diagnostics, then restore for JSON binding
+	rawBody, _ := io.ReadAll(c.Request.Body)
+	log.Printf("[UpdateStore] Raw payload for store_id=%s: %s", storeID, string(rawBody))
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
+
+	type updateStorePayload struct {
+		models.Store
+		PartnerOrgID *string `json:"partner_org_id"`
+	}
+	var payload updateStorePayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		log.Printf("[UpdateStore] JSON bind error for store_id=%s: %v", storeID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 		return
 	}
 
+	log.Printf("[UpdateStore] Parsed fields: id=%s name=%q city=%q address=%q lat=%v lng=%v type=%v region_id=%v image_url=%v is_active=%v partner_org_id=%v",
+		storeID, payload.Name, payload.City, payload.Address, payload.Latitude, payload.Longitude, payload.Type, payload.RegionID, payload.ImageURL, payload.IsActive, payload.PartnerOrgID,
+	)
+
 	query := `
         UPDATE stores
-        SET name = $2, city = $3, address = $4, latitude = $5, longitude = $6, type = $7, image_url = $8, is_active = $9, updated_at = CURRENT_TIMESTAMP
+        SET name = $2, city = $3, address = $4, latitude = $5, longitude = $6, type = $7, region_id = $8, image_url = $9, is_active = $10, updated_at = CURRENT_TIMESTAMP
         WHERE store_id = $1
-        RETURNING updated_at
     `
 
-	var updatedAt time.Time
-	err := h.db.Pool.QueryRow(ctx, query,
+	args := []interface{}{
 		storeID,
-		updatedStore.Name,
-		updatedStore.City,
-		updatedStore.Address,
-		updatedStore.Latitude,
-		updatedStore.Longitude,
-		updatedStore.Type,
-		updatedStore.ImageURL,
-		updatedStore.IsActive,
-	).Scan(&updatedAt)
+		payload.Name,
+		payload.City,
+		payload.Address,
+		payload.Latitude,
+		payload.Longitude,
+		payload.Type,
+		payload.RegionID,
+		payload.ImageURL,
+		payload.IsActive,
+	}
+	log.Printf("[UpdateStore] SQL args: $1=%v $2=%v $3=%v $4=%v $5=%v $6=%v $7=%v $8=%v $9=%v $10=%v",
+		args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9],
+	)
 
+	cmdTag, err := h.db.Pool.Exec(ctx, query, args...)
 	if err != nil {
-		log.Printf("Failed to update store in DB: %v", err)
+		log.Printf("[UpdateStore] DB Exec error for store_id=%s: %v", storeID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update store"})
 		return
 	}
+	rowsAffected := cmdTag.RowsAffected()
+	log.Printf("[UpdateStore] RowsAffected=%d for store_id=%s", rowsAffected, storeID)
 
-	updatedStore.UpdatedAt = updatedAt
-	c.JSON(http.StatusOK, updatedStore)
+	// Update partner mapping if provided
+	if payload.PartnerOrgID != nil {
+		partner := strings.TrimSpace(*payload.PartnerOrgID)
+		if partner == "" {
+			if err := h.db.SetStorePartners(ctx, sid, []models.StorePartner{}); err != nil {
+				log.Printf("[UpdateStore] Failed to clear partner mapping for store_id=%s: %v", storeID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update partner organization mapping"})
+				return
+			}
+		} else {
+			var orgType string
+			if err := h.db.Pool.QueryRow(ctx, `SELECT org_type::text FROM organizations WHERE org_id = $1`, partner).Scan(&orgType); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Selected organization not found"})
+				return
+			}
+			if orgType != string(models.OrgTypePartner) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Selected organization is not of type 'Partner'"})
+				return
+			}
+			if err := h.db.SetStorePartners(ctx, sid, []models.StorePartner{{StoreID: sid, PartnerOrgID: partner}}); err != nil {
+				log.Printf("[UpdateStore] Failed to set partner mapping for store_id=%s: %v", storeID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update partner organization mapping"})
+				return
+			}
+		}
+	}
+
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Store not found"})
+		return
+	}
+
+	// Fetch updated_at to include in response
+	var updatedAt time.Time
+	if err := h.db.Pool.QueryRow(ctx, `SELECT updated_at FROM stores WHERE store_id = $1`, storeID).Scan(&updatedAt); err != nil {
+		log.Printf("[UpdateStore] Failed to fetch updated_at for store_id=%s: %v", storeID, err)
+		// Non-fatal: continue without updated_at
+	}
+
+	payload.UpdatedAt = updatedAt
+	c.JSON(http.StatusOK, payload.Store)
 }
 
 // DeleteStore handles DELETE /stores/:id
@@ -2547,4 +2669,115 @@ func (h *Handler) UploadCategoryImage(c *gin.Context) {
 		"image_url":  imageURL,
 		"updated_at": updatedAt,
 	})
+}
+
+// GetManufacturerProducts handles GET /manufacturer/products (authenticated)
+func (h *Handler) GetManufacturerProducts(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	orgs, ok := c.Get("org_memberships")
+	if !ok || orgs == nil {
+		c.JSON(http.StatusOK, []models.Product{})
+		return
+	}
+	arr, ok := orgs.([]interface{})
+	if !ok {
+		c.JSON(http.StatusOK, []models.Product{})
+		return
+	}
+	orgIDs := make([]string, 0, len(arr))
+	for _, it := range arr {
+		m, ok := it.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, ok := m["org_type"].(string); ok && t == "Manufacturer" {
+			if id, ok := m["org_id"].(string); ok && id != "" {
+				orgIDs = append(orgIDs, id)
+			}
+		}
+	}
+	if len(orgIDs) == 0 {
+		c.JSON(http.StatusOK, []models.Product{})
+		return
+	}
+
+	query := `
+		SELECT
+			p.product_id, p.product_uuid,
+			COALESCE(p.sku, '') as sku,
+			COALESCE(p.title, '') as title,
+			'' as description_short,
+			COALESCE(p.description, '') as description_long,
+			CASE WHEN p.mini_app_type IN ('UnmannedStore','ExhibitionSales') AND s.type IS NOT NULL THEN s.type::text ELSE p.store_type::text END as store_type,
+			COALESCE(p.mini_app_type::text, '') as mini_app_type,
+			p.store_id,
+			p.shelf_code,
+			COALESCE(p.main_price, 0) as main_price,
+			p.strikethrough_price,
+			COALESCE(p.weight, 1.00) as weight,
+			COALESCE(p.stock_left, 0) as stock_left,
+			COALESCE(p.minimum_order_quantity, 1) as minimum_order_quantity,
+			COALESCE(p.is_active, false) as is_active,
+			COALESCE(p.is_featured, false) as is_featured,
+			COALESCE(p.is_mini_app_recommendation, false) as is_mini_app_recommendation,
+			COALESCE(p.created_at, NOW()) as created_at,
+			COALESCE(p.updated_at, NOW()) as updated_at
+		FROM products p
+		LEFT JOIN stores s ON p.store_id = s.store_id AND p.mini_app_type IN ('UnmannedStore','ExhibitionSales')
+		WHERE p.owner_org_id::text IN (%s)
+		ORDER BY p.product_id`
+
+	placeholders := make([]string, len(orgIDs))
+	args := make([]interface{}, 0, len(orgIDs))
+	for i, id := range orgIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args = append(args, id)
+	}
+	finalQuery := fmt.Sprintf(query, strings.Join(placeholders, ", "))
+
+	rows, err := h.db.Pool.Query(ctx, finalQuery, args...)
+	if err != nil {
+		log.Printf("manufacturer products query failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+		return
+	}
+	defer rows.Close()
+
+	var products []models.Product
+	for rows.Next() {
+		var product models.Product
+		var storeType sql.NullString
+		if err := rows.Scan(
+			&product.ID,
+			&product.UUID,
+			&product.SKU,
+			&product.Title,
+			&product.DescriptionShort,
+			&product.DescriptionLong,
+			&storeType,
+			&product.MiniAppType,
+			&product.StoreID,
+			&product.ShelfCode,
+			&product.MainPrice,
+			&product.StrikethroughPrice,
+			&product.Weight,
+			&product.StockLeft,
+			&product.MinimumOrderQuantity,
+			&product.IsActive,
+			&product.IsFeatured,
+			&product.IsMiniAppRecommendation,
+			&product.CreatedAt,
+			&product.UpdatedAt,
+		); err != nil {
+			log.Printf("scan error: %v", err)
+			continue
+		}
+		if storeType.Valid {
+			product.StoreType = models.StoreType(storeType.String)
+		}
+		products = append(products, product)
+	}
+	c.JSON(http.StatusOK, products)
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   Box,
@@ -25,7 +25,7 @@ import axios from 'axios';
 const EmailLoginPage = () => {
   const { isAuthenticated, loading } = useAuth();
   const [step, setStep] = useState(0); // 0: email, 1: verification code
-  const [email] = useState('expotobsrl@gmail.com'); // Fixed admin email
+  const [email, setEmail] = useState(''); // Dynamic admin email input
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -53,10 +53,46 @@ const EmailLoginPage = () => {
     return () => clearInterval(timer);
   }, [codeExpiry]);
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    return <Navigate to="/" replace />;
-  }
+  // Auto-submit when 6 digits are entered on the verification step
+  const handleVerifyCode = useCallback(async () => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
+      const response = await axios.post(`${API_BASE}/api/auth/admin/verify-code`, {
+        email: email,
+        code: code
+      });
+
+      // Store token and user data
+      const tokenData = {
+        token: response.data.token,
+        expiresAt: response.data.expires_at
+      };
+
+      localStorage.setItem('admin_token', JSON.stringify(tokenData));
+      localStorage.setItem('admin_user', JSON.stringify(response.data.user));
+
+      // Set default authorization header
+      axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+
+      // Redirect to dashboard
+      window.location.href = '#/';
+      window.location.reload();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Invalid verification code');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [email, code]);
+
+  useEffect(() => {
+    if (step === 1 && code.length === 6 && !isLoading) {
+      handleVerifyCode();
+    }
+  }, [step, code, isLoading, handleVerifyCode]);
+
 
   const formatTime = (seconds) => {
     const minutes = Math.floor(seconds / 60);
@@ -84,43 +120,12 @@ const EmailLoginPage = () => {
     }
   };
 
-  const handleVerifyCode = async () => {
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await axios.post(`${API_BASE}/api/auth/admin/verify-code`, {
-        email: email,
-        code: code
-      });
-
-      // Store token and user data
-      const tokenData = {
-        token: response.data.token,
-        expiresAt: response.data.expires_at
-      };
-      
-      localStorage.setItem('admin_token', JSON.stringify(tokenData));
-      localStorage.setItem('admin_user', JSON.stringify(response.data.user));
-      
-      // Set default authorization header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
-      
-      // Redirect to dashboard
-      window.location.href = '#/';
-      window.location.reload();
-    } catch (error) {
-      setError(error.response?.data?.message || 'Invalid verification code');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleCodeChange = (e) => {
     const value = e.target.value.replace(/\D/g, '').slice(0, 6);
     setCode(value);
     if (error) setError('');
+
   };
 
   const handleBackToEmail = () => {
@@ -130,10 +135,16 @@ const EmailLoginPage = () => {
     setCodeExpiry(null);
   };
 
+  // Redirect if already authenticated
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
   if (loading) {
     return (
       <Box
         sx={{
+
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -216,13 +227,17 @@ const EmailLoginPage = () => {
               <TextField
                 fullWidth
                 label="Admin Email"
+                type="email"
                 value={email}
-                disabled
+                onChange={(e) => setEmail(e.target.value)}
                 margin="normal"
                 InputProps={{
                   startAdornment: <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
-                helperText="This is the authorized admin email address"
+                placeholder="you@company.com"
+                helperText="Enter your admin/manufacturer/3PL/partner email"
+                disabled={isLoading}
+                autoComplete="email"
               />
 
               <Button
@@ -271,9 +286,9 @@ const EmailLoginPage = () => {
                       Code expires in: <strong>{formatTime(timeLeft)}</strong>
                     </Typography>
                   </Box>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={(timeLeft / 600) * 100} 
+                  <LinearProgress
+                    variant="determinate"
+                    value={(timeLeft / 600) * 100}
                     sx={{ height: 6, borderRadius: 3 }}
                   />
                 </Box>
@@ -288,9 +303,9 @@ const EmailLoginPage = () => {
                 placeholder="Enter 6-digit code"
                 inputProps={{
                   maxLength: 6,
-                  style: { 
-                    textAlign: 'center', 
-                    fontSize: '24px', 
+                  style: {
+                    textAlign: 'center',
+                    fontSize: '24px',
                     letterSpacing: '8px',
                     fontFamily: 'monospace'
                   }
@@ -299,21 +314,21 @@ const EmailLoginPage = () => {
                 autoFocus
               />
 
-              <Box sx={{ display: 'flex', gap: 2, mt: 3 }}>
+              <Box sx={{ display: 'flex', gap: 2, mt: 3, flexWrap: 'wrap' }}>
                 <Button
                   variant="outlined"
                   onClick={handleBackToEmail}
                   disabled={isLoading}
-                  sx={{ flex: 1 }}
+                  sx={{ flex: 1, minWidth: 120 }}
                 >
                   Back
                 </Button>
-                
+
                 <Button
                   variant="contained"
                   onClick={handleVerifyCode}
                   disabled={isLoading || code.length !== 6}
-                  sx={{ flex: 2, fontWeight: 600 }}
+                  sx={{ flex: 2, fontWeight: 600, minWidth: 180 }}
                 >
                   {isLoading ? (
                     <>
@@ -323,6 +338,15 @@ const EmailLoginPage = () => {
                   ) : (
                     'Verify & Sign In'
                   )}
+                </Button>
+
+                <Button
+                  variant="text"
+                  onClick={handleSendCode}
+                  disabled={isLoading || timeLeft > 0}
+                  sx={{ flex: 1, minWidth: 160 }}
+                >
+                  {timeLeft > 0 ? `Resend in ${formatTime(timeLeft)}` : 'Resend Code'}
                 </Button>
               </Box>
 

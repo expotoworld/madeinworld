@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"log"
+
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,7 +80,7 @@ func (h *Handler) GetUsers(c *gin.Context) {
 	}
 
 	if sort := c.Query("sort"); sort != "" {
-		validSorts := []string{"created_at", "last_login", "full_name", "email", "role", "order_count", "total_spent"}
+		validSorts := []string{"created_at", "last_login", "full_name", "email", "phone", "role", "order_count", "total_spent"}
 		for _, validSort := range validSorts {
 			if sort == validSort {
 				params.Sort = sort
@@ -135,6 +137,11 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		})
 		return
 	}
+
+	// Audit log
+	adminEmail, _ := c.Get("email")
+	adminRole, _ := c.Get("role")
+	log.Printf("[AUDIT][USERS][CREATE] by=%v role=%v target_email=%s", adminEmail, adminRole, req.Email)
 
 	// Create user in repository
 	user, err := h.userRepo.CreateUser(ctx, req)
@@ -240,6 +247,11 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	// Audit log
+	adminEmail, _ := c.Get("email")
+	adminRole, _ := c.Get("role")
+	log.Printf("[AUDIT][USERS][UPDATE] by=%v role=%v target_user_id=%s fields=%v", adminEmail, adminRole, userID, updates)
+
 	// Update user in repository
 	err := h.userRepo.UpdateUser(ctx, userID, updates)
 	if err != nil {
@@ -276,6 +288,11 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		return
 	}
 
+	// Audit log
+	adminEmail, _ := c.Get("email")
+	adminRole, _ := c.Get("role")
+	log.Printf("[AUDIT][USERS][DELETE] by=%v role=%v target_user_id=%s", adminEmail, adminRole, userID)
+
 	// Delete user from repository
 	err := h.userRepo.DeleteUser(ctx, userID)
 	if err != nil {
@@ -300,6 +317,11 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 
 // UpdateUserStatus handles POST /api/admin/users/{user_id}/status
 func (h *Handler) UpdateUserStatus(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Attach the timeout context to the request so any downstream operations use it
+	c.Request = c.Request.WithContext(ctx)
 
 	userID := c.Param("user_id")
 	if userID == "" {
@@ -328,6 +350,11 @@ func (h *Handler) UpdateUserStatus(c *gin.Context) {
 		return
 	}
 
+	// Audit log
+	adminEmail, _ := c.Get("email")
+	adminRole, _ := c.Get("role")
+	log.Printf("[AUDIT][USERS][STATUS] by=%v role=%v target_user_id=%s new_status=%s reason=%s", adminEmail, adminRole, userID, statusUpdate.Status, statusUpdate.Reason)
+
 	// For now, we'll just log the status update since we don't have a status field in the database
 	// In a real implementation, you would update the user's status field
 	c.JSON(http.StatusOK, models.SuccessResponse{
@@ -344,16 +371,20 @@ func (h *Handler) UpdateUserStatus(c *gin.Context) {
 func (h *Handler) GetUserAnalytics(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	start := time.Now()
+	log.Printf("[USER-API] GetUserAnalytics start")
 
 	// Get analytics from repository
 	analytics, err := h.userRepo.GetUserAnalytics(ctx)
 	if err != nil {
+		log.Printf("[USER-API] GetUserAnalytics error: %v", err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to retrieve user analytics",
 			Message: err.Error(),
 		})
 		return
 	}
+	log.Printf("[USER-API] GetUserAnalytics success in %v", time.Since(start))
 
 	c.JSON(http.StatusOK, analytics)
 }
@@ -426,6 +457,11 @@ func (h *Handler) BulkUpdateUsers(c *gin.Context) {
 		}
 		updates["status"] = string(*bulkUpdate.Status)
 	}
+
+	// Audit log
+	adminEmail, _ := c.Get("email")
+	adminRole, _ := c.Get("role")
+	log.Printf("[AUDIT][USERS][BULK] by=%v role=%v operation=%s count=%d", adminEmail, adminRole, bulkUpdate.Operation, len(bulkUpdate.UserIDs))
 
 	// Perform bulk update
 	err := h.userRepo.BulkUpdateUsers(ctx, bulkUpdate.UserIDs, bulkUpdate.Operation, updates)

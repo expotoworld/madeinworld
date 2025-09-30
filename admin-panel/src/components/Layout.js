@@ -31,6 +31,8 @@ import {
   Assessment as AnalyticsIcon,
   AccountCircle as AccountIcon,
   Logout as LogoutIcon,
+  Apartment as OrgIcon,
+  Public as RegionsIcon,
 } from '@mui/icons-material';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -57,6 +59,16 @@ const navigationItems = [
     text: 'Stores',
     icon: <StoreIcon />,
     path: '/stores',
+  },
+  {
+    text: 'Organizations',
+    icon: <OrgIcon />,
+    path: '/organizations',
+  },
+  {
+    text: 'Regions',
+    icon: <RegionsIcon />,
+    path: '/regions',
   },
   {
     text: 'Users',
@@ -129,55 +141,66 @@ const Layout = ({ children }) => {
       </Toolbar>
 
       {/* Navigation Items */}
-      <List sx={{ px: 1, py: 2 }}>
-        {navigationItems.map((item) => {
-          const isActive = location.pathname === item.path;
-          
-          return (
-            <ListItemButton
-              key={item.text}
-              component={NavLink}
-              to={item.path}
-              selected={isActive}
-              sx={{
-                borderRadius: '8px',
-                mb: 0.5,
-                '&.Mui-selected': {
-                  backgroundColor: theme.palette.primary.light,
-                  color: theme.palette.primary.main,
-                  '& .MuiListItemIcon-root': {
-                    color: theme.palette.primary.main,
-                  },
-                  '&:hover': {
-                    backgroundColor: theme.palette.primary.light,
-                  },
-                },
-                '&:hover': {
-                  backgroundColor: '#F3F4F6',
-                },
-              }}
-            >
-              <ListItemIcon
-                sx={{
-                  color: isActive ? theme.palette.primary.main : theme.palette.text.secondary,
-                  minWidth: '40px',
-                }}
-              >
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText
-                primary={item.text}
-                sx={{
-                  '& .MuiTypography-root': {
-                    fontWeight: isActive ? 600 : 400,
-                    fontSize: '14px',
-                  },
-                }}
-              />
-            </ListItemButton>
-          );
-        })}
-      </List>
+      {(() => {
+        const role = user?.role || 'User';
+        let visible = navigationItems;
+        if (role !== 'Admin') {
+          // Non-admins: show a minimal set for manufacturer portal
+          const allow = new Set(['Dashboard', 'Products', 'Orders']);
+          visible = navigationItems.filter(it => allow.has(it.text));
+        }
+        return (
+          <List sx={{ px: 1, py: 2 }}>
+            {visible.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <ListItemButton
+                  key={item.text}
+                  component={NavLink}
+                  to={item.path}
+                  selected={isActive}
+                  sx={{
+                    borderRadius: '8px',
+                    mb: 0.5,
+                    '&.Mui-selected': {
+                      backgroundColor: theme.palette.primary.light,
+                      color: theme.palette.primary.main,
+                      '& .MuiListItemIcon-root': {
+                        color: theme.palette.primary.main,
+                      },
+                      '&:hover': {
+                        backgroundColor: theme.palette.primary.light,
+                      },
+                    },
+                    '&:hover': {
+                      backgroundColor: '#F3F4F6',
+                    },
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      color: isActive ? theme.palette.primary.main : theme.palette.text.secondary,
+                      minWidth: '40px',
+                    }}
+                  >
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={item.text}
+                    sx={{
+                      '& .MuiTypography-root': {
+                        fontWeight: isActive ? 600 : 400,
+                        fontSize: '14px',
+                      },
+                    }}
+                  />
+                </ListItemButton>
+              );
+            })}
+          </List>
+        );
+      })()}
+
     </Box>
   );
 

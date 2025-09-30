@@ -23,17 +23,18 @@ import {
   IconButton,
   FormControlLabel,
   Switch,
+  Autocomplete,
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
   CheckCircle as SuccessIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { productService, storeService, categoryService } from '../services/api';
+import api, { productService, storeService, categoryService, orgService, relationshipService } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 import ImageCarousel from './ImageCarousel';
 
-const steps = ['Edit Product Details', 'Update Image (Optional)'];
+const steps = ['Product Details', 'Image Management'];
 
 const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
   const { showSuccess, showError } = useToast();
@@ -41,14 +42,16 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  
+
   // Form data initialized with existing product data
   const [formData, setFormData] = useState({
     title: '',
     sku: '',
     description_long: '',
+    weight: '1',
     mini_app_type: '零售门店',
     store_id: null,
+    shelf_code: '',
     main_price: '',
     strikethrough_price: '',
     cost_price: '',
@@ -59,7 +62,14 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
     is_active: true,
     category_ids: [],
     subcategory_ids: [],
+    manufacturer_org_id: '',
+    tpl_org_id: '',
   });
+  // Organizations for sourcing/logistics
+  const [manufacturers, setManufacturers] = useState([]);
+  const [tpls, setTpls] = useState([]);
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
+
 
   // Image management data
   const [productImages, setProductImages] = useState([]);
@@ -71,6 +81,9 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
   const [subcategories, setSubcategories] = useState([]);
   const [loadingStores, setLoadingStores] = useState(false);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [shelfCodeError, setShelfCodeError] = useState('');
+  const [shelfCodeChecking, setShelfCodeChecking] = useState(false);
+
   const [loadingSubcategories, setLoadingSubcategories] = useState(false);
 
   // Mini-app type options
@@ -98,8 +111,10 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
         title: product.title || '',
         sku: product.sku || '',
         description_long: product.description_long || '',
+        weight: (product.weight != null ? product.weight.toString() : '1'),
         mini_app_type: miniAppType,
         store_id: product.store_id || null,
+        shelf_code: product.shelf_code || '',
         main_price: product.main_price?.toString() || '',
         strikethrough_price: product.strikethrough_price?.toString() || '',
         cost_price: product.cost_price?.toString() || '',
@@ -118,12 +133,33 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
       // Load dynamic data for the product's mini-app type
       loadStores(miniAppType);
       loadCategories(miniAppType, product.store_id);
-
       // Load subcategories if category is selected
       if (product.category_ids && product.category_ids.length > 0) {
         loadSubcategories(product.category_ids[0]);
       }
     }
+
+      // Prefill existing sourcing/logistics assignments for edit
+      (async () => {
+        try {
+          const [sourcing, logistics] = await Promise.all([
+            relationshipService.getProductSourcing(product.id).catch(() => null),
+            relationshipService.getProductLogistics(product.id).catch(() => null),
+          ]);
+          const firstManufacturer = sourcing?.mappings?.[0]?.manufacturer_org_id || '';
+          const firstTpl = logistics?.mappings?.[0]?.tpl_org_id || '';
+          if (firstManufacturer || firstTpl) {
+            setFormData(prev => ({
+              ...prev,
+              manufacturer_org_id: firstManufacturer,
+              tpl_org_id: firstTpl,
+            }));
+          }
+        } catch (e) {
+          console.warn('Failed to prefill assignments', e);
+        }
+      })();
+
   }, [product]);
 
   const handleInputChange = (field) => (event) => {
@@ -151,6 +187,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
   const handleSubcategoriesChange = (subcategoryIds) => {
     setFormData({
       ...formData,
+
       subcategory_ids: subcategoryIds,
     });
   };
@@ -202,7 +239,31 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
     }
   };
 
-  // Load subcategories for a specific category
+  // Load organizations for Step 1 (assignments live in Step 1 of Edit modal)
+  useEffect(() => {
+    if (!open) return;
+    if (activeStep !== 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingOrgs(true);
+        const [m, l] = await Promise.all([
+          orgService.getOrganizations('Manufacturer'),
+          orgService.getOrganizations('3PL'),
+        ]);
+        if (!cancelled) {
+          setManufacturers(m?.organizations || []);
+          setTpls(l?.organizations || []);
+        }
+      } catch (e) {
+        console.error('Failed to load organizations', e);
+      } finally {
+        if (!cancelled) setLoadingOrgs(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, activeStep]);
+
   const loadSubcategories = async (categoryId) => {
     try {
       setLoadingSubcategories(true);
@@ -252,22 +313,70 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
     setSubcategories([]);
   };
 
+  // Real-time shelf code validation (debounced)
+  useEffect(() => {
+    const requiresStore = ['无人商店', '展销展消'].includes(formData.mini_app_type);
+    if (!requiresStore || !formData.store_id) {
+      setShelfCodeError('');
+      return;
+    }
+    const code = (formData.shelf_code || '').trim();
+    if (!code) {
+      setShelfCodeError('');
+      return;
+    }
+    setShelfCodeChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await productService.validateShelfCode({
+          store_id: formData.store_id,
+          shelf_code: code,
+          product_id: product?.id,
+        });
+        if (result && result.valid === false) {
+          setShelfCodeError('Shelf code already exists for this store');
+        } else {
+          setShelfCodeError('');
+        }
+      } catch (e) {
+        setShelfCodeError('');
+      } finally {
+        setShelfCodeChecking(false);
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [formData.mini_app_type, formData.store_id, formData.shelf_code, product?.id]);
 
 
   const handleStep1Submit = async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Validate required fields
-      if (!formData.title || !formData.sku || !formData.main_price) {
+      if (!formData.title || !formData.sku || !formData.main_price || !formData.weight) {
         throw new Error('Please fill in all required fields');
+      }
+
+      // Validate weight >= 1 gram
+      const weightVal = parseFloat(formData.weight);
+      if (isNaN(weightVal) || weightVal < 1) {
+        throw new Error('Product weight must be at least 1 gram');
       }
 
       // Validate mini-app specific requirements
       const selectedMiniAppType = miniAppTypes.find(type => type.value === formData.mini_app_type);
       if (selectedMiniAppType?.requiresStore && !formData.store_id) {
         throw new Error('Please select a store for this mini-app type');
+      }
+      if (selectedMiniAppType?.requiresStore && formData.store_id) {
+        const code = (formData.shelf_code || '').trim();
+        if (!code) {
+          throw new Error('Please enter a shelf code');
+        }
+        if (shelfCodeError) {
+          throw new Error('Shelf code must be unique for the selected store');
+        }
       }
 
       // Map mini-app type to backend values
@@ -287,6 +396,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
       };
 
       // Prepare data for API
+      const requiresStore = miniAppTypes.find(t => t.value === formData.mini_app_type)?.requiresStore;
       const productData = {
         ...formData,
         main_price: parseFloat(formData.main_price),
@@ -296,12 +406,13 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
         cost_price: formData.cost_price
           ? parseFloat(formData.cost_price)
           : null,
-        stock_left: parseInt(formData.stock_left) || 0,
+        weight: formData.weight ? parseFloat(formData.weight) : 1,
+        stock_left: formData.mini_app_type === '无人商店' ? (parseInt(formData.stock_left) || 0) : undefined,
         minimum_order_quantity: parseInt(formData.minimum_order_quantity) || 1,
-        manufacturer_id: product.manufacturer_id || 1,
         mini_app_type: miniAppTypeMap[formData.mini_app_type],
         store_type: storeTypeMap[formData.mini_app_type],
         store_id: formData.store_id ? parseInt(formData.store_id) : null,
+        shelf_code: requiresStore && formData.store_id ? (formData.shelf_code?.trim() || null) : null,
         is_active: formData.is_active,
         category_ids: formData.category_ids,
         subcategory_ids: formData.subcategory_ids,
@@ -314,13 +425,33 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
       await productService.updateProduct(product.id, productData);
       console.log('Product updated successfully:', productData);
 
+      // Apply sourcing/logistics assignments (non-blocking)
+      try {
+        const selectedStore = stores.find(s => s.id === parseInt(formData.store_id));
+        const regionId = selectedStore?.region_id || null;
+        const promises = [];
+        if (formData.manufacturer_org_id && regionId) {
+          promises.push(
+            relationshipService.manageProductSourcing(product.id, [{ region_id: regionId, manufacturer_org_id: formData.manufacturer_org_id }])
+          );
+        }
+        if (formData.tpl_org_id) {
+          promises.push(
+            relationshipService.manageProductLogistics(product.id, [{ tpl_org_id: formData.tpl_org_id }])
+          );
+        }
+        if (promises.length) await Promise.all(promises);
+      } catch (e) {
+        console.warn('Assignments update failed (non-blocking):', e);
+      }
+
       showSuccess('Product details updated successfully!');
 
       // Move to step 2 after success
       setTimeout(() => {
         setActiveStep(1);
       }, 1000);
-      
+
     } catch (err) {
       console.error('Error updating product:', err);
       setError(err.message || 'Failed to update product');
@@ -334,13 +465,8 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
   // Load product images
   const loadProductImages = async (productId) => {
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${productId}/images`);
-
-      if (response.ok) {
-        const images = await response.json();
-        setProductImages(images);
-      }
+      const { data } = await api.get(`/products/${productId}/images`);
+      setProductImages(data);
     } catch (error) {
       console.error('Error loading product images:', error);
     }
@@ -361,19 +487,11 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
         formData.append('images', file);
       });
 
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${product.id}/images`, {
-        method: 'POST',
-        body: formData,
+      const { data } = await api.post(`/products/${product.id}/images`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload images');
-      }
-
-      const result = await response.json();
-      setProductImages(prev => [...prev, ...result.images]);
-      showSuccess(`${result.images.length} image(s) uploaded successfully`);
+      setProductImages(prev => [...prev, ...data.images]);
+      showSuccess(`${data.images.length} image(s) uploaded successfully`);
     } catch (error) {
       console.error('Error uploading images:', error);
       showError('Failed to upload images');
@@ -387,15 +505,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
     if (!product?.id) return;
 
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${product.id}/images/${imageId}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete image');
-      }
-
+      await api.delete(`/products/${product.id}/images/${imageId}`);
       setProductImages(prev => prev.filter(img => img.id !== imageId));
       showSuccess('Image deleted successfully');
     } catch (error) {
@@ -414,19 +524,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
         display_order: index + 1,
       }));
 
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${product.id}/images/reorder`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ image_orders: imageOrders }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reorder images');
-      }
-
+      await api.put(`/products/${product.id}/images/reorder`, { image_orders: imageOrders });
       setProductImages(reorderedImages);
       showSuccess('Images reordered successfully');
     } catch (error) {
@@ -440,15 +538,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
     if (!product?.id) return;
 
     try {
-      const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
-      const response = await fetch(`${API_BASE}/api/v1/products/${product.id}/images/${imageId}/primary`, {
-        method: 'PUT'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to set primary image');
-      }
-
+      await api.put(`/products/${product.id}/images/${imageId}/primary`);
       setProductImages(prev => prev.map(img => ({
         ...img,
         is_primary: img.id === imageId,
@@ -498,7 +588,9 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
             <CloseIcon />
           </IconButton>
         </Box>
-        
+
+
+
         <Stepper activeStep={activeStep} sx={{ mt: 2 }}>
           {steps.map((label) => (
             <Step key={label}>
@@ -514,7 +606,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
             {error}
           </Alert>
         )}
-        
+
         {success && (
           <Alert severity="success" sx={{ mb: 2 }}>
             {success}
@@ -531,7 +623,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
               fullWidth
               disabled={loading}
             />
-            
+
             <TextField
               label="SKU *"
               value={formData.sku}
@@ -540,7 +632,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
               disabled={loading}
               helperText="Unique product identifier"
             />
-            
+
             <TextField
               label="Product Description"
               value={formData.description_long}
@@ -551,6 +643,18 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
               disabled={loading}
               helperText="Detailed description for product"
             />
+
+            <TextField
+              label="Product Weight (grams) *"
+              value={formData.weight}
+              onChange={handleInputChange('weight')}
+              type="number"
+              inputProps={{ step: '0.01', min: '1' }}
+              fullWidth
+              disabled={loading}
+              helperText="grams"
+            />
+
 
             <FormControl fullWidth disabled={loading}>
               <InputLabel>Mini-APP Type *</InputLabel>
@@ -589,7 +693,9 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
                 )}
               </FormControl>
             )}
-            
+
+
+
             {/* Pricing Section */}
             <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>Pricing & Inventory</Typography>
 
@@ -635,8 +741,8 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
                 type="number"
                 inputProps={{ min: '0' }}
                 fullWidth
-                disabled={loading}
-                helperText="Available inventory"
+                disabled={loading || formData.mini_app_type !== '无人商店'}
+                helperText="Available inventory (only for 无人商店)"
               />
 
               <TextField
@@ -647,7 +753,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
                 inputProps={{ min: '1' }}
                 fullWidth
                 disabled={loading}
-                helperText="Minimum units customers must purchase"
+                helperText="Minimum order quantity"
               />
             </Box>
 
@@ -693,6 +799,31 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
                   </Typography>
                 )}
               </FormControl>
+            )}
+
+
+            {/* Shelf Code (only for store-based mini-apps) */}
+            {miniAppTypes.find(type => type.value === formData.mini_app_type)?.requiresStore && formData.store_id && (
+              <TextField
+                label="Shelf Code"
+                value={formData.shelf_code}
+                onChange={handleInputChange('shelf_code')}
+                required
+                inputProps={{ maxLength: 50 }}
+                fullWidth
+                disabled={loading}
+                error={Boolean(shelfCodeError)}
+                helperText={
+                  shelfCodeError
+                    ? shelfCodeError
+                    : (shelfCodeChecking
+                        ? 'Checking...'
+                        : ((formData.shelf_code || '').trim() ? 'Available • Unique per store' : 'Unique per store'))
+                }
+                FormHelperTextProps={{
+                  sx: { color: shelfCodeError ? 'error.main' : (shelfCodeChecking ? 'text.secondary' : 'success.main') }
+                }}
+              />
             )}
 
             {/* Main Page Featured Toggle - Only for 无人商店 and 展销展消 */}
@@ -771,6 +902,36 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
                 sx={{ alignItems: 'flex-start' }}
               />
             </Box>
+
+            {/* Organization Assignments */}
+            <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>Organization Assignments</Typography>
+
+            <Autocomplete
+              options={manufacturers}
+              getOptionLabel={(option) => option?.name || ''}
+              loading={loadingOrgs}
+              value={manufacturers.find(o => o.org_id === formData.manufacturer_org_id) || null}
+              onChange={(_, newValue) => setFormData({ ...formData, manufacturer_org_id: newValue ? newValue.org_id : '' })}
+              renderInput={(params) => (
+                <TextField {...params} label="Manufacturer" placeholder="Search manufacturers..." fullWidth />
+              )}
+              disabled={loading}
+            />
+
+            <Box sx={{ mt: 2 }} />
+
+            <Autocomplete
+              options={tpls}
+              getOptionLabel={(option) => option?.name || ''}
+              loading={loadingOrgs}
+              value={tpls.find(o => o.org_id === formData.tpl_org_id) || null}
+              onChange={(_, newValue) => setFormData({ ...formData, tpl_org_id: newValue ? newValue.org_id : '' })}
+              renderInput={(params) => (
+                <TextField {...params} label="3PL" placeholder="Search 3PL organizations..." fullWidth />
+              )}
+              disabled={loading}
+            />
+
           </Box>
         )}
 
@@ -816,7 +977,7 @@ const EditProductModal = ({ open, onClose, product, onProductUpdated }) => {
           <Button
             variant="contained"
             onClick={handleStep1Submit}
-            disabled={loading || !formData.title || !formData.sku || !formData.main_price}
+            disabled={loading || !formData.title || !formData.sku || !formData.main_price || !formData.weight}
             startIcon={loading ? <CircularProgress size={20} /> : null}
           >
             {loading ? 'Updating...' : 'Update & Continue'}

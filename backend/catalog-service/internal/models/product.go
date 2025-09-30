@@ -81,13 +81,14 @@ type Product struct {
 	Title                   string      `json:"title" db:"title"`
 	DescriptionShort        string      `json:"description_short" db:"description_short"`
 	DescriptionLong         string      `json:"description_long" db:"description_long"`
-	ManufacturerID          int         `json:"manufacturer_id" db:"manufacturer_id"`
 	StoreType               StoreType   `json:"store_type" db:"store_type"`
 	MiniAppType             MiniAppType `json:"mini_app_type" db:"mini_app_type"`
 	StoreID                 *int        `json:"store_id" db:"store_id"`
+	ShelfCode               *string     `json:"shelf_code,omitempty" db:"shelf_code"`
 	MainPrice               float64     `json:"main_price" db:"main_price"`
 	StrikethroughPrice      *float64    `json:"strikethrough_price" db:"strikethrough_price"`
 	CostPrice               *float64    `json:"cost_price,omitempty" db:"cost_price"` // Admin only - excluded from public API
+	Weight                  float64     `json:"weight" db:"weight"`
 	StockLeft               int         `json:"stock_left" db:"stock_left"`
 	MinimumOrderQuantity    int         `json:"minimum_order_quantity" db:"minimum_order_quantity"`
 	IsActive                bool        `json:"is_active" db:"is_active"`
@@ -109,12 +110,12 @@ type PublicProduct struct {
 	Title                   string      `json:"title"`
 	DescriptionShort        string      `json:"description_short"`
 	DescriptionLong         string      `json:"description_long"`
-	ManufacturerID          int         `json:"manufacturer_id"`
 	StoreType               StoreType   `json:"store_type"`
 	MiniAppType             MiniAppType `json:"mini_app_type"`
 	StoreID                 *int        `json:"store_id"`
 	MainPrice               float64     `json:"main_price"`
 	StrikethroughPrice      *float64    `json:"strikethrough_price"`
+	Weight                  float64     `json:"weight"`
 	StockLeft               int         `json:"stock_left"`
 	MinimumOrderQuantity    int         `json:"minimum_order_quantity"`
 	IsActive                bool        `json:"is_active"`
@@ -137,12 +138,12 @@ func (p *Product) ToPublicProduct() PublicProduct {
 		Title:                   p.Title,
 		DescriptionShort:        p.DescriptionShort,
 		DescriptionLong:         p.DescriptionLong,
-		ManufacturerID:          p.ManufacturerID,
 		StoreType:               p.StoreType,
 		MiniAppType:             p.MiniAppType,
 		StoreID:                 p.StoreID,
 		MainPrice:               p.MainPrice,
 		StrikethroughPrice:      p.StrikethroughPrice,
+		Weight:                  p.Weight,
 		StockLeft:               p.StockLeft,
 		MinimumOrderQuantity:    p.MinimumOrderQuantity,
 		IsActive:                p.IsActive,
@@ -220,6 +221,7 @@ type Store struct {
 	Latitude  float64   `json:"latitude" db:"latitude"`
 	Longitude float64   `json:"longitude" db:"longitude"`
 	Type      StoreType `json:"type" db:"type"`
+	RegionID  *int      `json:"region_id,omitempty" db:"region_id"`
 	ImageURL  *string   `json:"image_url" db:"image_url"`
 	IsActive  bool      `json:"is_active" db:"is_active"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`

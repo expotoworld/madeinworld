@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -19,6 +19,7 @@ import {
   IconButton,
   Tooltip,
 } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -32,12 +33,17 @@ import ProductForm from '../components/ProductForm';
 import ProductDetailsModal from '../components/ProductDetailsModal';
 import DeleteProductDialog from '../components/DeleteProductDialog';
 import ProductStatusToggle from '../components/ProductStatusToggle';
+import ImagePreviewModal from '../components/ImagePreviewModal';
+
+
 
 // Resolve image URLs via Worker
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'https://device-api.expomadeinworld.com';
 const toImg = (url) => (url && !url.startsWith('http') ? `${API_BASE}${url}` : url || '');
 
 const ProductListPage = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -48,27 +54,33 @@ const ProductListPage = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  // Image preview modal
 
-  const fetchProducts = async () => {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewCtx, setPreviewCtx] = useState(null); // { mode, entity }
+
+
+  const fetchProducts = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
-      const data = await productService.getProducts();
-      // Ensure we always have an array, even if API returns null
+      const data = isAdmin
+        ? await productService.getProducts()
+        : await productService.getManufacturerProducts();
       setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching products:', err);
       setError(err.message || 'Failed to load products');
-      // Set empty array on error to prevent null reference errors
       setProducts([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [isAdmin]);
+
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [fetchProducts]);
 
   const handleAddProduct = () => {
     setAddModalOpen(true);
@@ -100,11 +112,13 @@ const ProductListPage = () => {
     setDeleteDialogOpen(true);
   };
 
-  const handleProductUpdated = () => {
-    // Refresh the product list after successful update
-    fetchProducts();
-    setEditModalOpen(false);
-    setSelectedProduct(null);
+  const handleProductUpdated = (updated) => {
+    // Update the local list immediately for a snappy UX, then refresh from server
+    if (updated && updated.id) {
+      setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+    }
+    // Keep the edit modal open so the user can proceed to Image Management (Step 3)
+    fetchProducts(true);
   };
 
   const handleProductDeleted = () => {
@@ -223,21 +237,23 @@ const ProductListPage = () => {
             Manage your product catalog and inventory
           </Typography>
         </Box>
-        
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleAddProduct}
-          sx={{
-            borderRadius: '8px',
-            textTransform: 'none',
-            fontWeight: 600,
-            px: 3,
-            py: 1.5,
-          }}
-        >
-          Add Product
-        </Button>
+
+        {isAdmin && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleAddProduct}
+            sx={{
+              borderRadius: '8px',
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              py: 1.5,
+            }}
+          >
+            Add Product
+          </Button>
+        )}
       </Box>
 
       {/* Error Alert */}
@@ -250,8 +266,8 @@ const ProductListPage = () => {
       {/* Products Table */}
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <TableContainer component={Paper} elevation={0}>
-            <Table>
+          <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 1000 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 600 }}>Product</TableCell>
@@ -297,10 +313,15 @@ const ProductListPage = () => {
                             sx={{
                               width: 48,
                               height: 48,
-                              filter: product.is_active ? 'none' : 'grayscale(50%)'
+                              filter: product.is_active ? 'none' : 'grayscale(50%)',
+                              cursor: 'pointer'
                             }}
                             variant="rounded"
                             imgProps={{ onError: (e) => { e.currentTarget.src=''; } }}
+                            onClick={() => {
+                              setPreviewCtx({ mode: 'product', entity: { id: product.id } });
+                              setPreviewOpen(true);
+                            }}
                           >
                             <StoreIcon />
                           </Avatar>
@@ -316,12 +337,12 @@ const ProductListPage = () => {
                               {product.title}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {product.description_short}
+                              {product.description_long}
                             </Typography>
                           </Box>
                         </Box>
                       </TableCell>
-                      
+
                       <TableCell>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                           {product.sku}
@@ -388,7 +409,7 @@ const ProductListPage = () => {
                           )}
                         </Box>
                       </TableCell>
-                      
+
                       <TableCell>
                         <Box>
                           <Typography variant="body1" sx={{ fontWeight: 600 }}>
@@ -407,9 +428,9 @@ const ProductListPage = () => {
                           )}
                         </Box>
                       </TableCell>
-                      
+
                       <TableCell>
-                        {(product.store_type === '无人门店' || product.store_type === '无人仓店' || product.store_type?.toLowerCase() === 'unmanned') ? (
+                        {(product.store_type === '无人门店' || product.store_type === '无人仓店') ? (
                           <Typography variant="body2">
                             {product.stock_left || 0} units
                           </Typography>
@@ -419,13 +440,15 @@ const ProductListPage = () => {
                           </Typography>
                         )}
                       </TableCell>
-                      
+
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <ProductStatusToggle
-                            product={product}
-                            onStatusChanged={handleStatusChanged}
-                          />
+                          {isAdmin && (
+                            <ProductStatusToggle
+                              product={product}
+                              onStatusChanged={handleStatusChanged}
+                            />
+                          )}
                           <Chip
                             label={product.is_active ? 'Active' : 'Inactive'}
                             size="small"
@@ -434,7 +457,7 @@ const ProductListPage = () => {
                           />
                         </Box>
                       </TableCell>
-                      
+
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <Tooltip title="View Details">
@@ -446,24 +469,28 @@ const ProductListPage = () => {
                               <ViewIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Edit Product">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleEditProduct(product)}
-                              sx={{ color: 'warning.main' }}
-                            >
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete Product">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleDeleteProduct(product)}
-                              sx={{ color: 'error.main' }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          {isAdmin && (
+                            <>
+                              <Tooltip title="Edit Product">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleEditProduct(product)}
+                                  sx={{ color: 'warning.main' }}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Delete Product">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteProduct(product)}
+                                  sx={{ color: 'error.main' }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
                         </Box>
                       </TableCell>
                     </TableRow>
@@ -487,7 +514,9 @@ const ProductListPage = () => {
         open={detailsModalOpen}
         onClose={handleCloseModals}
         product={selectedProduct}
+        onUpdated={fetchProducts}
       />
+
 
       {/* Edit Product Modal */}
       <ProductForm
@@ -504,6 +533,16 @@ const ProductListPage = () => {
         product={selectedProduct}
         onProductDeleted={handleProductDeleted}
       />
+
+      {/* Image Preview / Manage Modal */}
+      <ImagePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        mode={previewCtx?.mode}
+        entity={previewCtx?.entity}
+        onUpdated={fetchProducts}
+      />
+
     </Box>
   );
 };

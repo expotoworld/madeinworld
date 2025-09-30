@@ -151,7 +151,7 @@ test.describe('3-Step Product Creation Workflow', () => {
     await page.fill('input[label="Minimum Order Quantity *"]', '0');
     await page.click('button:has-text("Next: Categorization")');
     await expect(page.locator('text=Minimum order quantity must be at least 1')).toBeVisible();
-    
+
     // Fix MOQ
     await page.fill('input[label="Minimum Order Quantity *"]', '1');
     await page.click('button:has-text("Next: Categorization")');

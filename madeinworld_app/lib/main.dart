@@ -7,7 +7,7 @@ import 'presentation/providers/cart_provider.dart';
 import 'presentation/providers/location_provider.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/screens/main/main_screen.dart';
-import 'presentation/screens/auth/email_verification_screen.dart';
+import 'presentation/screens/auth/auth_screen.dart';
 import 'data/models/auth_models.dart';
 
 void main() {
@@ -182,9 +182,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
         // Route to appropriate screen based on authentication status
         if (authProvider.isAuthenticated) {
           return const SafeMainScreen();
-        } else {
-          return const EmailVerificationScreen();
         }
+
+        // Default unauthenticated or awaiting verification -> single unified screen
+        return const AuthScreen();
       },
     );
   }

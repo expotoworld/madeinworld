@@ -121,6 +121,24 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 		adminGroup.GET("/carts/statistics", handler.GetCartStatistics)
 	}
 
+	// Manufacturer-scoped routes (authenticated)
+	manufacturer := router.Group("/api/manufacturer")
+	manufacturer.Use(api.AuthMiddleware())
+	{
+		manufacturer.GET("/orders", handler.GetManufacturerOrders)
+		manufacturer.GET("/orders/:order_id", handler.GetManufacturerOrder)
+		manufacturer.PUT("/orders/:order_id/status", handler.UpdateManufacturerOrderStatus)
+	}
+
+	// Alias under /api/admin/manufacturer to pass through the existing gateway mapping for order-service
+	adminManufacturer := router.Group("/api/admin/manufacturer")
+	adminManufacturer.Use(api.AuthMiddleware()) // note: no AdminMiddleware on purpose
+	{
+		adminManufacturer.GET("/orders", handler.GetManufacturerOrders)
+		adminManufacturer.GET("/orders/:order_id", handler.GetManufacturerOrder)
+		adminManufacturer.PUT("/orders/:order_id/status", handler.UpdateManufacturerOrderStatus)
+	}
+
 	// Root endpoint for basic info
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{

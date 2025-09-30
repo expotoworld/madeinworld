@@ -153,7 +153,7 @@ const ImageCarousel = ({
                   display: 'flex', 
                   flexWrap: 'wrap', 
                   gap: 2,
-                  minHeight: 120 
+                  minHeight: 160
                 }}
               >
                 {images.map((image, index) => (
@@ -168,7 +168,7 @@ const ImageCarousel = ({
                         {...provided.draggableProps}
                         {...provided.dragHandleProps}
                         sx={{
-                          width: 200,
+                          width: 160,
                           position: 'relative',
                           transform: snapshot.isDragging ? 'rotate(5deg)' : 'none',
                           boxShadow: snapshot.isDragging ? 4 : 1,
@@ -207,10 +207,10 @@ const ImageCarousel = ({
                         {/* Image */}
                         <CardMedia
                           component="img"
-                          height="120"
+                          height="160"
                           image={image.image_url || image.url}
                           alt={`Product image ${index + 1}`}
-                          sx={{ objectFit: 'cover' }}
+                          sx={{ objectFit: 'contain', bgcolor: '#f5f5f5' }}
                         />
 
                         {/* Action Buttons */}

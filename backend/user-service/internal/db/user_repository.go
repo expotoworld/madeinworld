@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"user-service/internal/models"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // UserRepository handles user database operations
@@ -23,35 +21,15 @@ func NewUserRepository(db *Database) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-// hashPassword hashes a password using bcrypt
-func hashPassword(password string) (string, error) {
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-	return string(hashedBytes), nil
-}
-
 // GetUsers retrieves users with pagination, search, and filtering
 func (r *UserRepository) GetUsers(ctx context.Context, params models.UserSearchParams) (*models.UserListResponse, error) {
-	// Build the base query
-	baseQuery := `
-		SELECT u.id, u.username, u.email, u.password_hash,
-		       u.first_name, u.last_name, u.role, u.status, u.last_login,
-		       u.created_at, u.updated_at,
-		       COALESCE(order_stats.order_count, 0) as order_count,
-		       COALESCE(order_stats.total_spent, 0) as total_spent
-		FROM users u
-		LEFT JOIN (
-			SELECT user_id,
-			       COUNT(*) as order_count,
-			       SUM(total_amount) as total_spent
-			FROM orders
-			GROUP BY user_id
-		) order_stats ON u.id = order_stats.user_id
-	`
+	// Determine if orders table exists (cold start resilience)
+	ordersExists := r.ordersTableExists(ctx)
+	if !ordersExists {
+		log.Printf("[USER-DB] orders table not found; using fallback (no join) for GetUsers")
+	}
 
-	// Build WHERE clause
+	// Common WHERE building
 	var whereConditions []string
 	var args []interface{}
 	argIndex := 1
@@ -72,45 +50,87 @@ func (r *UserRepository) GetUsers(ctx context.Context, params models.UserSearchP
 		argIndex++
 	}
 
-	// Add WHERE clause if we have conditions
+	whereSQL := ""
 	if len(whereConditions) > 0 {
-		baseQuery += " WHERE " + strings.Join(whereConditions, " AND ")
+		whereSQL = " WHERE " + strings.Join(whereConditions, " AND ")
 	}
 
-	// Add ORDER BY clause
-	orderBy := "u.created_at"
+	// Map ORDER BY fields (fix full_name to SQL expression)
+	orderByExpr := "u.created_at"
 	if params.Sort != "" {
 		switch params.Sort {
 		case "full_name":
-			orderBy = "u.full_name"
+			orderByExpr = "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.username)"
 		case "email":
-			orderBy = "u.email"
+			orderByExpr = "u.email"
+		case "phone":
+			orderByExpr = "u.phone"
 		case "last_login":
-			orderBy = "u.last_login"
+			orderByExpr = "u.last_login"
 		case "role":
-			orderBy = "u.role"
+			orderByExpr = "u.role"
 		case "order_count":
-			orderBy = "order_count"
+			orderByExpr = "order_count"
 		case "total_spent":
-			orderBy = "total_spent"
+			orderByExpr = "total_spent"
 		}
 	}
 
-	order := "DESC"
+	orderDir := "DESC"
 	if params.Order == "asc" {
-		order = "ASC"
+		orderDir = "ASC"
 	}
 
-	baseQuery += fmt.Sprintf(" ORDER BY %s %s", orderBy, order)
+	// Build SELECT and JOIN depending on orders table availability
+	selectWithJoin := `
+		SELECT u.id, u.username, u.email, u.phone,
+		       u.first_name, u.middle_name, u.last_name, u.role, u.status, u.last_login,
+		       u.created_at, u.updated_at,
+		       COALESCE(order_stats.order_count, 0) as order_count,
+		       COALESCE(order_stats.total_spent, 0) as total_spent
+		FROM users u
+		LEFT JOIN (
+			SELECT user_id,
+			       COUNT(*) as order_count,
+			       COALESCE(SUM(total_amount), 0) as total_spent
+			FROM orders
+			GROUP BY user_id
+		) order_stats ON u.id = order_stats.user_id`
 
-	// Add pagination
-	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
-	args = append(args, params.Limit, (params.Page-1)*params.Limit)
+	selectNoJoin := `
+		SELECT u.id, u.username, u.email, u.phone,
+		       u.first_name, u.middle_name, u.last_name, u.role, u.status, u.last_login,
+		       u.created_at, u.updated_at,
+		       0 as order_count,
+		       0 as total_spent
+		FROM users u`
 
-	log.Printf("Executing query: %s with args: %v", baseQuery, args)
+	buildQuery := func(withJoin bool) string {
+		base := selectNoJoin
+		if withJoin {
+			base = selectWithJoin
+		}
+		query := base + whereSQL + fmt.Sprintf(" ORDER BY %s %s", orderByExpr, orderDir)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+		return query
+	}
 
-	// Execute the query
-	rows, err := r.db.DB.QueryContext(ctx, baseQuery, args...)
+	// First attempt based on existence check
+	baseQuery := buildQuery(ordersExists)
+	argsWithPage := append(args, params.Limit, (params.Page-1)*params.Limit)
+	log.Printf("[USER-DB] Executing GetUsers query (withJoin=%v): %s args=%v", ordersExists, baseQuery, argsWithPage)
+
+	rows, err := r.db.DB.QueryContext(ctx, baseQuery, argsWithPage...)
+	if err != nil {
+		// If we attempted with join and it failed due to missing orders, retry without join
+		errStr := strings.ToLower(err.Error())
+		if ordersExists && (strings.Contains(errStr, "relation") && strings.Contains(errStr, "orders") || strings.Contains(errStr, "does not exist") || strings.Contains(errStr, "undefined table")) {
+			log.Printf("[USER-DB] Join query failed likely due to missing orders table; retrying without join: err=%v", err)
+			fallbackQuery := buildQuery(false)
+			log.Printf("[USER-DB] Executing GetUsers fallback query: %s args=%v", fallbackQuery, argsWithPage)
+			rows, err = r.db.DB.QueryContext(ctx, fallbackQuery, argsWithPage...)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query users: %w", err)
 	}
@@ -124,8 +144,9 @@ func (r *UserRepository) GetUsers(ctx context.Context, params models.UserSearchP
 			&user.ID,
 			&user.Username,
 			&user.Email,
-			&user.PasswordHash,
+			&user.Phone,
 			&user.FirstName,
+			&user.MiddleName,
 			&user.LastName,
 			&user.Role,
 			&user.Status,
@@ -140,12 +161,21 @@ func (r *UserRepository) GetUsers(ctx context.Context, params models.UserSearchP
 		}
 
 		// Set computed fields
-		user.FullName = user.Username // Use username as display name
-		if user.FirstName != nil && user.LastName != nil {
-			user.FullName = *user.FirstName + " " + *user.LastName
+		user.FullName = strings.TrimSpace(user.Username)
+		var parts []string
+		if user.FirstName != nil && strings.TrimSpace(*user.FirstName) != "" {
+			parts = append(parts, strings.TrimSpace(*user.FirstName))
+		}
+		if user.MiddleName != nil && strings.TrimSpace(*user.MiddleName) != "" {
+			parts = append(parts, strings.TrimSpace(*user.MiddleName))
+		}
+		if user.LastName != nil && strings.TrimSpace(*user.LastName) != "" {
+			parts = append(parts, strings.TrimSpace(*user.LastName))
+		}
+		if len(parts) > 0 {
+			user.FullName = strings.Join(parts, " ")
 		}
 
-		// Set last login if valid
 		if lastLogin.Valid {
 			user.LastLogin = &lastLogin.Time
 		}
@@ -188,7 +218,7 @@ func (r *UserRepository) getUserCount(ctx context.Context, params models.UserSea
 			 LOWER(u.email) LIKE LOWER($%d) OR
 			 LOWER(u.first_name) LIKE LOWER($%d) OR
 			 LOWER(u.last_name) LIKE LOWER($%d) OR
-			 u.phone LIKE $%d)`, argIndex, argIndex, argIndex, argIndex, argIndex))
+			 LOWER(u.middle_name) LIKE LOWER($%d))`, argIndex, argIndex, argIndex, argIndex, argIndex))
 		args = append(args, "%"+params.Search+"%")
 		argIndex++
 	}
@@ -212,11 +242,22 @@ func (r *UserRepository) getUserCount(ctx context.Context, params models.UserSea
 	return count, nil
 }
 
+// ordersTableExists checks whether the 'orders' table exists in the current schema
+func (r *UserRepository) ordersTableExists(ctx context.Context) bool {
+	var regclass sql.NullString
+	err := r.db.DB.QueryRowContext(ctx, "SELECT to_regclass('public.orders')").Scan(&regclass)
+	if err != nil {
+		log.Printf("[USER-DB] orders table existence check error: %v", err)
+		return false
+	}
+	return regclass.Valid && regclass.String != ""
+}
+
 // GetUserByID retrieves a user by ID with order statistics
 func (r *UserRepository) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
 	query := `
-		SELECT u.id, u.username, u.email, u.password_hash,
-		       u.first_name, u.last_name, u.role, u.status, u.last_login,
+		SELECT u.id, u.username, u.email, u.phone,
+		       u.first_name, u.middle_name, u.last_name, u.role, u.status, u.last_login,
 		       u.created_at, u.updated_at,
 		       COALESCE(order_stats.order_count, 0) as order_count,
 		       COALESCE(order_stats.total_spent, 0) as total_spent
@@ -238,8 +279,9 @@ func (r *UserRepository) GetUserByID(ctx context.Context, userID string) (*model
 		&user.ID,
 		&user.Username,
 		&user.Email,
-		&user.PasswordHash,
+		&user.Phone,
 		&user.FirstName,
+		&user.MiddleName,
 		&user.LastName,
 		&user.Role,
 		&user.Status,
@@ -258,9 +300,19 @@ func (r *UserRepository) GetUserByID(ctx context.Context, userID string) (*model
 	}
 
 	// Set computed fields
-	user.FullName = user.Username
-	if user.FirstName != nil && user.LastName != nil {
-		user.FullName = *user.FirstName + " " + *user.LastName
+	user.FullName = strings.TrimSpace(user.Username)
+	var parts []string
+	if user.FirstName != nil && strings.TrimSpace(*user.FirstName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.FirstName))
+	}
+	if user.MiddleName != nil && strings.TrimSpace(*user.MiddleName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.MiddleName))
+	}
+	if user.LastName != nil && strings.TrimSpace(*user.LastName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.LastName))
+	}
+	if len(parts) > 0 {
+		user.FullName = strings.Join(parts, " ")
 	}
 
 	// Set last login if valid
@@ -271,30 +323,25 @@ func (r *UserRepository) GetUserByID(ctx context.Context, userID string) (*model
 	return &user, nil
 }
 
-// CreateUser creates a new user in the database
+// CreateUser creates a new user in the database (passwordless)
 func (r *UserRepository) CreateUser(ctx context.Context, req models.UserCreateRequest) (*models.User, error) {
-	// Hash the password
-	hashedPassword, err := hashPassword(req.Password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
 	// Insert user into database
 	var user models.User
 	query := `
-		INSERT INTO users (username, email, password_hash, first_name, last_name, role, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, username, email, password_hash, first_name, last_name, role, status, created_at, updated_at
+		INSERT INTO users (username, email, phone, first_name, middle_name, last_name, role, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, username, email, phone, first_name, middle_name, last_name, role, status, created_at, updated_at
 	`
 
-	err = r.db.DB.QueryRowContext(ctx, query,
-		req.Username, req.Email, hashedPassword,
-		req.FirstName, req.LastName, req.Role, req.Status).Scan(
+	err := r.db.DB.QueryRowContext(ctx, query,
+		req.Username, req.Email, req.Phone,
+		req.FirstName, req.MiddleName, req.LastName, req.Role, req.Status).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
-		&user.PasswordHash,
+		&user.Phone,
 		&user.FirstName,
+		&user.MiddleName,
 		&user.LastName,
 		&user.Role,
 		&user.Status,
@@ -307,9 +354,19 @@ func (r *UserRepository) CreateUser(ctx context.Context, req models.UserCreateRe
 	}
 
 	// Set computed fields
-	user.FullName = user.Username
-	if user.FirstName != nil && user.LastName != nil {
-		user.FullName = *user.FirstName + " " + *user.LastName
+	user.FullName = strings.TrimSpace(user.Username)
+	var parts []string
+	if user.FirstName != nil && strings.TrimSpace(*user.FirstName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.FirstName))
+	}
+	if user.MiddleName != nil && strings.TrimSpace(*user.MiddleName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.MiddleName))
+	}
+	if user.LastName != nil && strings.TrimSpace(*user.LastName) != "" {
+		parts = append(parts, strings.TrimSpace(*user.LastName))
+	}
+	if len(parts) > 0 {
+		user.FullName = strings.Join(parts, " ")
 	}
 
 	return &user, nil
@@ -322,19 +379,41 @@ func (r *UserRepository) UpdateUser(ctx context.Context, userID string, updates 
 	argIndex := 1
 
 	if updates.FullName != nil {
-		// Split full name into first_name and last_name
+		// Split full name into first_name and last_name (empty -> NULL)
 		names := strings.Fields(*updates.FullName)
 		if len(names) >= 1 {
-			setParts = append(setParts, fmt.Sprintf("first_name = $%d", argIndex))
+			setParts = append(setParts, fmt.Sprintf("first_name = NULLIF(TRIM($%d), '')", argIndex))
 			args = append(args, names[0])
 			argIndex++
 		}
 		if len(names) >= 2 {
 			lastName := strings.Join(names[1:], " ")
-			setParts = append(setParts, fmt.Sprintf("last_name = $%d", argIndex))
+			setParts = append(setParts, fmt.Sprintf("last_name = NULLIF(TRIM($%d), '')", argIndex))
 			args = append(args, lastName)
 			argIndex++
 		}
+	}
+
+	// Explicit name/phone updates (empty -> NULL)
+	if updates.FirstName != nil {
+		setParts = append(setParts, fmt.Sprintf("first_name = NULLIF(TRIM($%d), '')", argIndex))
+		args = append(args, *updates.FirstName)
+		argIndex++
+	}
+	if updates.MiddleName != nil {
+		setParts = append(setParts, fmt.Sprintf("middle_name = NULLIF(TRIM($%d), '')", argIndex))
+		args = append(args, *updates.MiddleName)
+		argIndex++
+	}
+	if updates.LastName != nil {
+		setParts = append(setParts, fmt.Sprintf("last_name = NULLIF(TRIM($%d), '')", argIndex))
+		args = append(args, *updates.LastName)
+		argIndex++
+	}
+	if updates.Phone != nil {
+		setParts = append(setParts, fmt.Sprintf("phone = NULLIF(TRIM($%d), '')", argIndex))
+		args = append(args, *updates.Phone)
+		argIndex++
 	}
 
 	if updates.Email != nil {
@@ -433,14 +512,18 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID string) error {
 
 // GetUserAnalytics retrieves user analytics data
 func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnalytics, error) {
+	start := time.Now()
+	log.Printf("[USER-DB] GetUserAnalytics start")
+
 	analytics := &models.UserAnalytics{
-		UsersByRole:   make(map[models.UserRole]int),
-		UsersByStatus: make(map[models.UserStatus]int),
+		UsersByRole:   make(map[string]int),
+		UsersByStatus: make(map[string]int),
 	}
 
 	// Get total users
 	err := r.db.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&analytics.TotalUsers)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: total users query failed: %v", err)
 		return nil, fmt.Errorf("failed to get total users: %w", err)
 	}
 
@@ -448,23 +531,30 @@ func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnal
 	roleQuery := "SELECT role, COUNT(*) FROM users GROUP BY role"
 	rows, err := r.db.DB.QueryContext(ctx, roleQuery)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: users by role query failed: %v; query=%s", err, roleQuery)
 		return nil, fmt.Errorf("failed to get users by role: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var role string
+		var role sql.NullString
 		var count int
 		if err := rows.Scan(&role, &count); err != nil {
+			log.Printf("[USER-DB] Analytics: scan role data failed: %v", err)
 			return nil, fmt.Errorf("failed to scan role data: %w", err)
 		}
-		analytics.UsersByRole[models.UserRole(role)] = count
+		key := "Unknown"
+		if role.Valid {
+			key = role.String
+		}
+		analytics.UsersByRole[key] = count
 	}
 
 	// Get new users today
 	todayQuery := "SELECT COUNT(*) FROM users WHERE DATE(created_at) = CURRENT_DATE"
 	err = r.db.DB.QueryRowContext(ctx, todayQuery).Scan(&analytics.NewUsersToday)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: new users today query failed: %v; query=%s", err, todayQuery)
 		return nil, fmt.Errorf("failed to get new users today: %w", err)
 	}
 
@@ -472,14 +562,15 @@ func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnal
 	weekQuery := "SELECT COUNT(*) FROM users WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)"
 	err = r.db.DB.QueryRowContext(ctx, weekQuery).Scan(&analytics.NewUsersThisWeek)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: new users this week query failed: %v; query=%s", err, weekQuery)
 		return nil, fmt.Errorf("failed to get new users this week: %w", err)
 	}
 
 	// Get active users (logged in within last 30 days)
-	activeQuery := "SELECT COUNT(*) FROM users WHERE last_login >= $1"
-	thirtyDaysAgo := time.Now().AddDate(0, 0, -30)
-	err = r.db.DB.QueryRowContext(ctx, activeQuery, thirtyDaysAgo).Scan(&analytics.ActiveUsers)
+	activeQuery := "SELECT COUNT(*) FROM users WHERE last_login >= NOW() - INTERVAL '30 days'"
+	err = r.db.DB.QueryRowContext(ctx, activeQuery).Scan(&analytics.ActiveUsers)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: active users query failed: %v; query=%s", err, activeQuery)
 		return nil, fmt.Errorf("failed to get active users: %w", err)
 	}
 
@@ -487,13 +578,13 @@ func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnal
 	trendQuery := `
 		SELECT DATE(created_at) as date, COUNT(*) as count
 		FROM users
-		WHERE created_at >= $1
+		WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
 		GROUP BY DATE(created_at)
 		ORDER BY date DESC
 	`
-	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
-	trendRows, err := r.db.DB.QueryContext(ctx, trendQuery, sevenDaysAgo)
+	trendRows, err := r.db.DB.QueryContext(ctx, trendQuery)
 	if err != nil {
+		log.Printf("[USER-DB] Analytics: registration trend query failed: %v", err)
 		return nil, fmt.Errorf("failed to get registration trend: %w", err)
 	}
 	defer trendRows.Close()
@@ -502,6 +593,7 @@ func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnal
 		var item models.RegistrationTrendItem
 		var date time.Time
 		if err := trendRows.Scan(&date, &item.Count); err != nil {
+			log.Printf("[USER-DB] Analytics: scan trend data failed: %v", err)
 			return nil, fmt.Errorf("failed to scan trend data: %w", err)
 		}
 		item.Date = date.Format("2006-01-02")
@@ -509,8 +601,10 @@ func (r *UserRepository) GetUserAnalytics(ctx context.Context) (*models.UserAnal
 	}
 
 	// Calculate status distribution based on last login
-	analytics.UsersByStatus[models.StatusActive] = analytics.ActiveUsers
-	analytics.UsersByStatus[models.StatusDeactivated] = analytics.TotalUsers - analytics.ActiveUsers
+	log.Printf("[USER-DB] GetUserAnalytics success in %v", time.Since(start))
+
+	analytics.UsersByStatus[string(models.StatusActive)] = analytics.ActiveUsers
+	analytics.UsersByStatus[string(models.StatusDeactivated)] = analytics.TotalUsers - analytics.ActiveUsers
 
 	return analytics, nil
 }

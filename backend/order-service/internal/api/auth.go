@@ -67,6 +67,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			c.Set("user_id", claims["user_id"])
 			c.Set("email", claims["email"])
+			if r, ok := claims["role"].(string); ok {
+				c.Set("role", r)
+			}
+			if orgs, ok := claims["org_memberships"]; ok {
+				c.Set("org_memberships", orgs)
+			}
 		}
 
 		c.Next()
@@ -100,20 +106,19 @@ func ValidateMiniAppType(c *gin.Context) (models.MiniAppType, bool) {
 	return miniAppType, true
 }
 
-// AdminMiddleware ensures the user has admin privileges
+// AdminMiddleware ensures the user has strict Admin role for admin endpoints
 func AdminMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Check if this is an admin request
-		isAdminRequest := c.GetHeader("X-Admin-Request") == "true"
-		if !isAdminRequest {
+		roleVal, exists := c.Get("role")
+		role, _ := roleVal.(string)
+		if !exists || role != "Admin" {
 			c.JSON(http.StatusForbidden, models.ErrorResponse{
 				Error:   "Admin access required",
-				Message: "This endpoint requires admin privileges",
+				Message: "Admin role required",
 			})
 			c.Abort()
 			return
 		}
-
 		c.Next()
 	}
 }

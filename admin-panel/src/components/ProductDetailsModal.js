@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -21,8 +21,9 @@ import {
   Category as CategoryIcon,
 } from '@mui/icons-material';
 
-const ProductDetailsModal = ({ open, onClose, product }) => {
-  if (!product) return null;
+import ImagePreviewModal from './ImagePreviewModal';
+
+const ProductDetailsModal = ({ open, onClose, product, onUpdated }) => {
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-US', {
@@ -94,6 +95,10 @@ const ProductDetailsModal = ({ open, onClose, product }) => {
 
 
 
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  if (!product) return null;
+
   return (
     <Dialog
       open={open}
@@ -128,7 +133,9 @@ const ProductDetailsModal = ({ open, onClose, product }) => {
                 sx={{
                   objectFit: 'cover',
                   backgroundColor: '#f5f5f5',
+                  cursor: 'pointer'
                 }}
+                onClick={() => setPreviewOpen(true)}
               />
             </Card>
           </Grid>
@@ -292,7 +299,7 @@ const ProductDetailsModal = ({ open, onClose, product }) => {
           {/* Descriptions */}
           <Grid item xs={12}>
             <Divider sx={{ my: 2 }} />
-            
+
             {/* Short Description */}
             {product.description_short && (
               <Box sx={{ mb: 3 }}>
@@ -338,14 +345,6 @@ const ProductDetailsModal = ({ open, onClose, product }) => {
                   {product.updated_at ? new Date(product.updated_at).toLocaleDateString() : 'N/A'}
                 </Typography>
               </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Manufacturer ID
-                </Typography>
-                <Typography variant="body2">
-                  {product.manufacturer_id || 'N/A'}
-                </Typography>
-              </Box>
             </Box>
           </Grid>
         </Grid>
@@ -356,6 +355,14 @@ const ProductDetailsModal = ({ open, onClose, product }) => {
           Close
         </Button>
       </DialogActions>
+      {/* Image Preview / Manage Modal */}
+      <ImagePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        mode="product"
+        entity={{ id: product.id }}
+        onUpdated={onUpdated}
+      />
     </Dialog>
   );
 };

@@ -1,7 +1,7 @@
 class User {
   final String id;
   final String username;
-  final String email;
+  final String? email;
   final String? phone;
   final String? firstName;
   final String? lastName;
@@ -11,7 +11,7 @@ class User {
   User({
     required this.id,
     required this.username,
-    required this.email,
+    this.email,
     this.phone,
     this.firstName,
     this.lastName,
@@ -22,14 +22,14 @@ class User {
   // Create User from auth service response
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'],
-      username: json['username'],
-      email: json['email'],
-      phone: json['phone'],
-      firstName: json['first_name'],
-      lastName: json['last_name'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      id: json['id'] as String,
+      username: json['username'] as String,
+      email: json['email'] as String?,
+      phone: json['phone'] as String?,
+      firstName: json['first_name'] as String?,
+      lastName: json['last_name'] as String?,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      updatedAt: DateTime.parse(json['updated_at'] as String),
     );
   }
 

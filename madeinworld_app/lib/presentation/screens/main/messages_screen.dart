@@ -7,7 +7,6 @@ class MessagesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // TODO: Replace with proper messaging API integration
     final placeholderMessages = [
       {
         'title': '订单更新',

@@ -7,9 +7,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/api"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/db"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/logging"
+	"github.com/expomadeinworld/madeinworld/auth-service/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -41,8 +44,59 @@ func main() {
 		}
 	}
 
+	// Initialize AWS configs separately for SES (email) and SNS (SMS)
+	// SES credentials
+	sesCreds := credentials.NewStaticCredentialsProvider(
+		os.Getenv("SES_AWS_ACCESS_KEY_ID"),
+		os.Getenv("SES_AWS_SECRET_ACCESS_KEY"),
+		"",
+	)
+	sesRegion := os.Getenv("SES_AWS_REGION")
+	if sesRegion == "" {
+		sesRegion = "eu-central-1"
+	}
+	sesCfg, sesErr := config.LoadDefaultConfig(context.Background(),
+		config.WithRegion(sesRegion),
+		config.WithCredentialsProvider(sesCreds),
+	)
+	if sesErr != nil {
+		log.Printf("[WARN] SES AWS config load failed: %v", sesErr)
+	}
+
+	// SNS credentials
+	snsCreds := credentials.NewStaticCredentialsProvider(
+		os.Getenv("SNS_AWS_ACCESS_KEY_ID"),
+		os.Getenv("SNS_AWS_SECRET_ACCESS_KEY"),
+		"",
+	)
+	snsRegion := os.Getenv("SNS_AWS_REGION")
+	if snsRegion == "" {
+		snsRegion = "eu-central-1"
+	}
+	snsCfg, snsErr := config.LoadDefaultConfig(context.Background(),
+		config.WithRegion(snsRegion),
+		config.WithCredentialsProvider(snsCreds),
+	)
+	if snsErr != nil {
+		log.Printf("[WARN] SNS AWS config load failed: %v", snsErr)
+	}
+
+	// Initialize services
+	var emailService *services.EmailService
+	if sesErr == nil {
+		emailService = services.NewEmailService(sesCfg)
+	} else {
+		log.Printf("[WARN] Email service not initialized due to SES config error")
+	}
+	var smsService *services.SmsService
+	if snsErr == nil {
+		smsService = services.NewSmsService(snsCfg)
+	} else {
+		log.Printf("[WARN] SMS service not initialized due to SNS config error")
+	}
+
 	// Initialize handlers (DB may be nil; /ready will report accordingly)
-	handler := api.NewHandler(database)
+	handler := api.NewHandler(database, emailService, smsService)
 
 	// Periodic cleanup disabled: we now perform opportunistic cleanup during auth requests
 	if database == nil {
@@ -105,6 +159,10 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 		// New passwordless authentication for users
 		auth.POST("/send-verification", handler.UserSendVerification)
 		auth.POST("/verify-code", handler.UserVerifyCode)
+
+		// Phone-based passwordless authentication
+		auth.POST("/send-phone-verification", handler.UserSendPhoneVerification)
+		auth.POST("/verify-phone-code", handler.UserVerifyPhoneCode)
 
 		// Token refresh
 		auth.POST("/refresh", handler.Refresh)

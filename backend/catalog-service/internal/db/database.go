@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/expomadeinworld/madeinworld/catalog-service/internal/models"
@@ -181,11 +182,37 @@ func (db *Database) CreateProduct(ctx context.Context, product models.Product) (
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	// Determine store_type param: NULL for RetailStore and GroupBuying
+	var storeTypeParam interface{}
+	if product.MiniAppType == models.MiniAppTypeRetailStore || product.MiniAppType == models.MiniAppTypeGroupBuying {
+		storeTypeParam = nil
+	} else {
+		storeTypeParam = product.StoreType
+	}
+
+	// Determine shelf_code param: only for location-based mini-apps with a selected store
+	var shelfCodeParam interface{}
+	if product.StoreID == nil || product.MiniAppType == models.MiniAppTypeRetailStore || product.MiniAppType == models.MiniAppTypeGroupBuying {
+		shelfCodeParam = nil
+	} else if product.ShelfCode != nil && strings.TrimSpace(*product.ShelfCode) != "" {
+		shelfCodeParam = product.ShelfCode
+	} else {
+		shelfCodeParam = nil
+	}
+
+	// Determine stock_left param: only Unmanned store types track inventory
+	var stockLeftParam interface{}
+	switch product.StoreType {
+	case models.StoreTypeUnmannedStore, models.StoreTypeUnmannedWarehouse:
+		stockLeftParam = product.StockLeft
+	default:
+		stockLeftParam = nil
+	}
 
 	var productID int
 	query := `
         INSERT INTO products
-            (sku, title, description_short, description_long, manufacturer_id, store_type, mini_app_type, store_id, main_price, strikethrough_price, cost_price, stock_left, minimum_order_quantity, is_active, is_featured, is_mini_app_recommendation)
+            (sku, title, description, store_type, mini_app_type, store_id, shelf_code, main_price, strikethrough_price, cost_price, weight, stock_left, minimum_order_quantity, is_active, is_featured, is_mini_app_recommendation)
         VALUES
             ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING product_id
@@ -193,16 +220,16 @@ func (db *Database) CreateProduct(ctx context.Context, product models.Product) (
 	err = tx.QueryRow(ctx, query,
 		product.SKU,
 		product.Title,
-		product.DescriptionShort,
 		product.DescriptionLong,
-		product.ManufacturerID,
-		product.StoreType,
+		storeTypeParam,
 		product.MiniAppType,
 		product.StoreID,
+		shelfCodeParam,
 		product.MainPrice,
 		product.StrikethroughPrice,
 		product.CostPrice,
-		product.StockLeft,
+		product.Weight,
+		stockLeftParam,
 		product.MinimumOrderQuantity,
 		product.IsActive,
 		product.IsFeatured,
@@ -267,8 +294,8 @@ func (db *Database) AddImageURLToProduct(ctx context.Context, productID int, ima
 	query := `
         INSERT INTO product_images (product_id, image_url, display_order)
         VALUES ($1, $2, (
-            SELECT COALESCE(MAX(display_order), 0) + 1 
-            FROM product_images 
+            SELECT COALESCE(MAX(display_order), 0) + 1
+            FROM product_images
             WHERE product_id = $1
         ))
     `
@@ -314,27 +341,57 @@ func (db *Database) ReplaceProductImage(ctx context.Context, productID int, imag
 // UpdateProduct updates an existing product in the database
 func (db *Database) UpdateProduct(ctx context.Context, productID int, product models.Product) error {
 	// Start a transaction to ensure atomicity
+	// Determine store_type param: NULL for RetailStore and GroupBuying
+	var storeTypeParam interface{}
+	if product.MiniAppType == models.MiniAppTypeRetailStore || product.MiniAppType == models.MiniAppTypeGroupBuying {
+		storeTypeParam = nil
+	} else {
+		storeTypeParam = product.StoreType
+	}
+
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
+	// Determine shelf_code param: only for location-based mini-apps with a selected store
+	var shelfCodeParam interface{}
+	if product.StoreID == nil || product.MiniAppType == models.MiniAppTypeRetailStore || product.MiniAppType == models.MiniAppTypeGroupBuying {
+		shelfCodeParam = nil
+	} else if product.ShelfCode != nil && strings.TrimSpace(*product.ShelfCode) != "" {
+		shelfCodeParam = product.ShelfCode
+	} else {
+		shelfCodeParam = nil
+	}
+
+	// Determine stock_left param: only Unmanned store types track inventory
+	var stockLeftParam interface{}
+	switch product.StoreType {
+	case models.StoreTypeUnmannedStore, models.StoreTypeUnmannedWarehouse:
+		stockLeftParam = product.StockLeft
+	default:
+		stockLeftParam = nil
+	}
+
 	// Update the basic product fields
+	log.Printf("[DB.UpdateProduct] id=%d sku=%s mini_app_type=%s store_type_param=%v store_id=%v shelf_code=%v stock_left_param=%v",
+		productID, product.SKU, product.MiniAppType, storeTypeParam, product.StoreID, shelfCodeParam, stockLeftParam,
+	)
 	query := `
         UPDATE products
         SET
             sku = $2,
             title = $3,
-            description_short = $4,
-            description_long = $5,
-            manufacturer_id = $6,
-            store_type = $7,
-            mini_app_type = $8,
-            store_id = $9,
-            main_price = $10,
-            strikethrough_price = $11,
-            cost_price = $12,
+            description = $4,
+            store_type = $5,
+            mini_app_type = $6,
+            store_id = $7,
+            shelf_code = $8,
+            main_price = $9,
+            strikethrough_price = $10,
+            cost_price = $11,
+            weight = $12,
             stock_left = $13,
             minimum_order_quantity = $14,
             is_active = $15,
@@ -347,16 +404,16 @@ func (db *Database) UpdateProduct(ctx context.Context, productID int, product mo
 		productID,
 		product.SKU,
 		product.Title,
-		product.DescriptionShort,
 		product.DescriptionLong,
-		product.ManufacturerID,
-		product.StoreType,
+		storeTypeParam,
 		product.MiniAppType,
 		product.StoreID,
+		shelfCodeParam,
 		product.MainPrice,
 		product.StrikethroughPrice,
 		product.CostPrice,
-		product.StockLeft,
+		product.Weight,
+		stockLeftParam,
 		product.MinimumOrderQuantity,
 		product.IsActive,
 		product.IsFeatured,
@@ -364,6 +421,7 @@ func (db *Database) UpdateProduct(ctx context.Context, productID int, product mo
 	)
 
 	if err != nil {
+		log.Printf("[DB.UpdateProduct] update error: %v", err)
 		return fmt.Errorf("failed to update product: %w", err)
 	}
 
@@ -471,12 +529,6 @@ func (db *Database) HardDeleteProduct(ctx context.Context, productID int) error 
 	_, err = tx.Exec(ctx, "DELETE FROM product_category_mapping WHERE product_id = $1", productID)
 	if err != nil {
 		return fmt.Errorf("failed to delete product category mappings: %w", err)
-	}
-
-	// Delete inventory records
-	_, err = tx.Exec(ctx, "DELETE FROM inventory WHERE product_id = $1", productID)
-	if err != nil {
-		return fmt.Errorf("failed to delete inventory records: %w", err)
 	}
 
 	// Finally delete the product

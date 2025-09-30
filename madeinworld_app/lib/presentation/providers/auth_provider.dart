@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../data/models/auth_models.dart';
@@ -23,6 +25,12 @@ class AuthProvider extends ChangeNotifier {
 
   // Auth service instance
   final AuthService _authService = AuthService();
+
+  // Scheduled token pre-refresh timer
+  Timer? _refreshTimer;
+
+  // Client-side invalid code attempts while awaiting verification
+  int _verifyAttempts = 0;
 
   // Current authentication state
   AuthState _state = const AuthState.unknown();
@@ -51,24 +59,26 @@ class AuthProvider extends ChangeNotifier {
   /// Initialize authentication state on app startup
   Future<void> initialize() async {
     debugPrint('AuthProvider: Initializing authentication state...');
-    
+
     _updateState(const AuthState.loading());
 
     try {
       // Check if we have a stored token
       final storedToken = await _secureStorage.read(key: _tokenKey);
-      
+
       if (storedToken == null) {
         debugPrint('AuthProvider: No stored token found');
         _updateState(const AuthState.unauthenticated());
         return;
       }
 
-      debugPrint('AuthProvider: Found stored token, validating...');
+      debugPrint('AuthProvider: Found stored token, refreshing/validating...');
 
-      // Validate the stored token
-      await _authService.validateToken(storedToken);
-      
+      // Prefer refresh which both validates and renews the token
+      final refreshedToken = await _authService.refreshToken(storedToken);
+      // Persist the refreshed token immediately
+      await _secureStorage.write(key: _tokenKey, value: refreshedToken);
+
       // Get stored user data
       final storedUserJson = await _secureStorage.read(key: _userKey);
       if (storedUserJson == null) {
@@ -83,8 +93,9 @@ class AuthProvider extends ChangeNotifier {
       final user = User.fromJson(userData);
 
       debugPrint('AuthProvider: Token validation successful for user: ${user.email}');
-      
-      _updateState(AuthState.authenticated(user: user, token: storedToken));
+
+      _updateState(AuthState.authenticated(user: user, token: refreshedToken));
+      _scheduleTokenRefresh(refreshedToken);
     } catch (e) {
       debugPrint('AuthProvider: Token validation failed: $e');
       await _clearStoredAuth();
@@ -103,8 +114,9 @@ class AuthProvider extends ChangeNotifier {
 
       debugPrint('AuthProvider: Verification code sent successfully to: $email');
 
-      // Return to unauthenticated state but without error (waiting for code verification)
-      _updateState(const AuthState.unauthenticated());
+      // Reset attempts and move to awaitingVerification so UI can navigate to code entry screen
+      _verifyAttempts = 0;
+      _updateState(AuthState.awaitingVerification(email: email));
     } catch (e) {
       debugPrint('AuthProvider: Failed to send verification code: $e');
       _updateState(AuthState.unauthenticated(errorMessage: e.toString()));
@@ -115,14 +127,17 @@ class AuthProvider extends ChangeNotifier {
 
   /// Verify email code and authenticate user (passwordless authentication)
   Future<void> verifyEmailCode(String email, String code) async {
-    debugPrint('AuthProvider: Verifying code for email: $email');
+    final effectiveEmail = (email.isNotEmpty) ? email : (_state.pendingEmail ?? '');
+    final attemptNum = _verifyAttempts + 1; // pre-increment display
+    debugPrint('AuthProvider: Verifying code for email: $effectiveEmail (attempt $attemptNum/3)');
 
     _updateState(const AuthState.loading());
 
     try {
-      final response = await _authService.verifyEmailCode(email, code);
+      final response = await _authService.verifyEmailCode(effectiveEmail, code);
 
-      // Store authentication data
+      // success: clear attempts and store auth
+      _verifyAttempts = 0;
       await _storeAuthData(response.token, response.user);
 
       debugPrint('AuthProvider: Email verification successful for user: ${response.user.email}');
@@ -131,13 +146,76 @@ class AuthProvider extends ChangeNotifier {
         user: response.user,
         token: response.token,
       ));
+      _scheduleTokenRefresh(response.token);
     } catch (e) {
       debugPrint('AuthProvider: Email verification failed: $e');
+      if (e is AuthException && e.isInvalidCredentials) {
+        _verifyAttempts += 1;
+        if (_verifyAttempts >= 3) {
+          _updateState(const AuthState.unauthenticated(errorMessage: '验证码错误次数过多，请确认您的邮箱地址是否正确'));
+        } else {
+          _updateState(_state.copyWith(
+            status: AuthStatus.awaitingVerification,
+            errorMessage: '验证码错误，请重试 (' '$_verifyAttempts/3' ')',
+            pendingEmail: effectiveEmail,
+          ));
+        }
+        return; // do not rethrow, stay on verification screen
+      }
       _updateState(AuthState.unauthenticated(errorMessage: e.toString()));
-      // Re-throw the exception so the UI can handle it
       rethrow;
     }
   }
+
+  /// Send verification code to phone (passwordless authentication)
+  Future<void> sendPhoneVerification(String phoneE164) async {
+    debugPrint('AuthProvider: Sending verification code to phone: $phoneE164');
+    _updateState(const AuthState.loading());
+    try {
+      await _authService.sendPhoneVerification(phoneE164);
+      debugPrint('AuthProvider: Phone verification code sent to: $phoneE164');
+      _verifyAttempts = 0;
+      _updateState(AuthState.awaitingVerification(phone: phoneE164));
+    } catch (e) {
+      debugPrint('AuthProvider: Failed to send phone verification: $e');
+      _updateState(AuthState.unauthenticated(errorMessage: e.toString()));
+      rethrow;
+    }
+  }
+
+  /// Verify phone code and authenticate user
+  Future<void> verifyPhoneCode(String phoneE164, String code) async {
+    final effectivePhone = (phoneE164.isNotEmpty) ? phoneE164 : (_state.pendingPhone ?? '');
+    final attemptNum = _verifyAttempts + 1;
+    debugPrint('AuthProvider: Verifying phone code for: $effectivePhone (attempt $attemptNum/3)');
+    _updateState(const AuthState.loading());
+    try {
+      final response = await _authService.verifyPhoneCode(effectivePhone, code);
+      _verifyAttempts = 0;
+      await _storeAuthData(response.token, response.user);
+      debugPrint('AuthProvider: Phone verification successful for user: ${response.user.phone ?? ''}');
+      _updateState(AuthState.authenticated(user: response.user, token: response.token));
+      _scheduleTokenRefresh(response.token);
+    } catch (e) {
+      debugPrint('AuthProvider: Phone verification failed: $e');
+      if (e is AuthException && e.isInvalidCredentials) {
+        _verifyAttempts += 1;
+        if (_verifyAttempts >= 3) {
+          _updateState(const AuthState.unauthenticated(errorMessage: '验证码错误次数过多，请确认您的手机号是否正确'));
+        } else {
+          _updateState(_state.copyWith(
+            status: AuthStatus.awaitingVerification,
+            errorMessage: '验证码错误，请重试 (' '$_verifyAttempts/3' ')',
+            pendingPhone: effectivePhone,
+          ));
+        }
+        return;
+      }
+      _updateState(AuthState.unauthenticated(errorMessage: e.toString()));
+      rethrow;
+    }
+  }
+
 
   /// Sign up a new user (DEPRECATED - use email verification instead)
   @Deprecated('Use sendVerificationCode and verifyEmailCode instead')
@@ -212,9 +290,9 @@ class AuthProvider extends ChangeNotifier {
   /// Log out the current user
   Future<void> logout() async {
     debugPrint('AuthProvider: Logging out user');
-    
+
     _updateState(const AuthState.loading());
-    
+
     try {
       await _clearStoredAuth();
       _updateState(const AuthState.unauthenticated());
@@ -247,6 +325,7 @@ class AuthProvider extends ChangeNotifier {
 
   /// Clear stored authentication data
   Future<void> _clearStoredAuth() async {
+    _cancelScheduledRefresh();
     try {
       await _secureStorage.delete(key: _tokenKey);
       await _secureStorage.delete(key: _userKey);
@@ -261,6 +340,70 @@ class AuthProvider extends ChangeNotifier {
     _state = newState;
     notifyListeners();
     debugPrint('AuthProvider: State updated to: ${newState.status}');
+  }
+
+  // Cancel any scheduled token refresh
+  void _cancelScheduledRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+  }
+
+  // Decode JWT 'exp' claim (seconds since epoch). Returns null if not present.
+  int? _decodeJwtExp(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      final normalized = base64Url.normalize(parts[1]);
+      final payload = utf8.decode(base64Url.decode(normalized));
+      final data = json.decode(payload) as Map<String, dynamic>;
+      final exp = data['exp'];
+      if (exp is int) return exp;
+      if (exp is String) return int.tryParse(exp);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Schedule a token pre-refresh ~5 minutes before expiry, or fallback interval.
+  void _scheduleTokenRefresh(String token, {Duration fallback = const Duration(minutes: 25)}) {
+    _cancelScheduledRefresh();
+    Duration delay;
+    final exp = _decodeJwtExp(token);
+    if (exp != null) {
+      final expiry = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+      delay = expiry.difference(DateTime.now()) - const Duration(minutes: 5);
+      if (delay.isNegative) delay = const Duration(seconds: 30);
+    } else {
+      delay = fallback;
+    }
+    _refreshTimer = Timer(delay, () async {
+      try {
+        final currentToken = _state.token ?? await _secureStorage.read(key: _tokenKey);
+        if (currentToken == null) return;
+        final newToken = await _authService.refreshToken(currentToken);
+        await _secureStorage.write(key: _tokenKey, value: newToken);
+        if (_state.user != null) {
+          _updateState(AuthState.authenticated(user: _state.user!, token: newToken));
+        } else {
+          final storedUserJson = await _secureStorage.read(key: _userKey);
+          if (storedUserJson != null) {
+            final user = User.fromJson(json.decode(storedUserJson) as Map<String, dynamic>);
+            _updateState(AuthState.authenticated(user: user, token: newToken));
+          }
+        }
+        _scheduleTokenRefresh(newToken);
+      } catch (e) {
+        // If refresh fails, move to unauthenticated (UI will handle redirect)
+        _updateState(const AuthState.unauthenticated());
+      }
+    });
+  }
+
+  /// Allow UI to cancel verification flow and return to input screen
+  Future<void> cancelVerification() async {
+    _verifyAttempts = 0;
+    _updateState(const AuthState.unauthenticated());
   }
 
 

@@ -6,19 +6,22 @@ import {
   Grid,
   Typography,
   CircularProgress,
-  Alert,
 } from '@mui/material';
 import {
   Inventory as ProductsIcon,
   Store as StoreIcon,
   TrendingUp as RevenueIcon,
   Assessment as AnalyticsIcon,
+  People as PeopleIcon,
+  PrecisionManufacturing as ManufacturingIcon,
+  LocalShipping as LogisticsIcon,
+  Group as PartnerIcon,
 } from '@mui/icons-material';
-import { productService, storeService, orderService } from '../services/api';
+import { productService, storeService, orderService, userService } from '../services/api';
 
 const DashboardPage = () => {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+
   const [stats, setStats] = useState({
     totalProducts: 0,
     totalStores: 0,
@@ -26,46 +29,50 @@ const DashboardPage = () => {
     orders: 0,
   });
 
+  const [roleStats, setRoleStats] = useState({
+    customers: 0,
+    manufacturers: 0,
+    partners3pl: 0,
+    partners: 0,
+  });
+
   useEffect(() => {
     const fetchDashboardData = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-        setError(null);
-
-        // Fetch products, stores, and order statistics
-        const [productsData, storesData, orderStats] = await Promise.all([
+        const results = await Promise.allSettled([
           productService.getProducts(),
           storeService.getStores(),
           orderService.getStatistics(),
+          userService.getUserAnalytics(),
         ]);
+
+        const [prodRes, storeRes, orderRes, userRes] = results;
+        const productsData = prodRes.status === 'fulfilled' ? prodRes.value : [];
+        const storesData = storeRes.status === 'fulfilled' ? storeRes.value : [];
+        const orderStats = orderRes.status === 'fulfilled' ? orderRes.value : { total_revenue: 0, total_orders: 0 };
+        const userAnalytics = userRes.status === 'fulfilled' ? userRes.value : null;
 
         setStats({
           totalProducts: (productsData && productsData.length) || 0,
           totalStores: (storesData && storesData.length) || 0,
-          revenue: orderStats.total_revenue || 0,
-          orders: orderStats.total_orders || 0,
+          revenue: (orderStats && orderStats.total_revenue) || 0,
+          orders: (orderStats && orderStats.total_orders) || 0,
         });
+
+        const byRole = (userAnalytics && userAnalytics.users_by_role) || {};
+        setRoleStats({
+          customers: byRole.Customer || 0,
+          manufacturers: byRole.Manufacturer || 0,
+          partners3pl: byRole['3PL'] || 0,
+          partners: byRole.Partner || 0,
+        });
+
+        // no-op: keep defaults
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
-        setError(err.message || 'Failed to load dashboard data');
-
-        // Fallback to partial data if order service fails
-        try {
-          const [productsData, storesData] = await Promise.all([
-            productService.getProducts(),
-            storeService.getStores(),
-          ]);
-
-          setStats({
-            totalProducts: (productsData && productsData.length) || 0,
-            totalStores: (storesData && storesData.length) || 0,
-            revenue: 0, // Will show 0 if order service is unavailable
-            orders: 0, // Will show 0 if order service is unavailable
-          });
-        } catch (fallbackErr) {
-          console.error('Error fetching fallback data:', fallbackErr);
-          setError('Failed to load dashboard data');
-        }
+        // Keep showing defaults instead of blocking the UI
+        // no-op: keep defaults
       } finally {
         setLoading(false);
       }
@@ -103,6 +110,34 @@ const DashboardPage = () => {
       color: '#DC2626',
       bgColor: '#FEF2F2',
     },
+    {
+      title: 'Customers',
+      value: roleStats.customers,
+      icon: <PeopleIcon sx={{ fontSize: 40 }} />,
+      color: '#2563EB',
+      bgColor: '#EFF6FF',
+    },
+    {
+      title: 'Manufacturers',
+      value: roleStats.manufacturers,
+      icon: <ManufacturingIcon sx={{ fontSize: 40 }} />,
+      color: '#0F766E',
+      bgColor: '#ECFDF5',
+    },
+    {
+      title: '3PL Partners',
+      value: roleStats.partners3pl,
+      icon: <LogisticsIcon sx={{ fontSize: 40 }} />,
+      color: '#0284C7',
+      bgColor: '#ECFEFF',
+    },
+    {
+      title: 'Partners',
+      value: roleStats.partners,
+      icon: <PartnerIcon sx={{ fontSize: 40 }} />,
+      color: '#9333EA',
+      bgColor: '#FAF5FF',
+    },
   ];
 
   if (loading) {
@@ -118,21 +153,7 @@ const DashboardPage = () => {
     );
   }
 
-  if (error) {
-    return (
-      <Box sx={{ mb: 3 }}>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-        <Typography variant="h4" gutterBottom>
-          Dashboard
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Unable to load dashboard data. Please check your connection and try again.
-        </Typography>
-      </Box>
-    );
-  }
+
 
   return (
     <Box>
@@ -141,9 +162,7 @@ const DashboardPage = () => {
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 700 }}>
           Dashboard
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Welcome to the Made in World Admin Panel. Here's an overview of your business.
-        </Typography>
+
       </Box>
 
       {/* Summary Cards */}
@@ -184,7 +203,7 @@ const DashboardPage = () => {
                     </Box>
                   </Box>
                 </Box>
-                
+
                 <Typography
                   variant="h4"
                   sx={{
@@ -195,7 +214,7 @@ const DashboardPage = () => {
                 >
                   {card.value}
                 </Typography>
-                
+
                 <Typography
                   variant="body2"
                   sx={{
@@ -209,55 +228,6 @@ const DashboardPage = () => {
             </Card>
           </Grid>
         ))}
-      </Grid>
-
-      {/* Quick Actions Section */}
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                Quick Actions
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Common administrative tasks
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Typography variant="body2">• Add new products</Typography>
-                <Typography variant="body2">• Manage inventory</Typography>
-                <Typography variant="body2">• View store locations</Typography>
-                <Typography variant="body2">• Generate reports</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                System Status
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                All systems operational
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Typography variant="body2" sx={{ color: '#059669' }}>
-                  ✓ Catalog Service: Online
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#059669' }}>
-                  ✓ Database: Connected
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#059669' }}>
-                  ✓ Image Storage: Available
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#059669' }}>
-                  ✓ API Gateway: Healthy
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
       </Grid>
     </Box>
   );

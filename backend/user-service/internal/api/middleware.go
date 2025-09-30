@@ -76,26 +76,29 @@ func AuthMiddleware() gin.HandlerFunc {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			c.Set("user_id", claims["user_id"])
 			c.Set("email", claims["email"])
+			if r, ok := claims["role"].(string); ok {
+				c.Set("role", r)
+			}
 		}
 
 		c.Next()
 	}
 }
 
-// AdminMiddleware ensures the user has admin privileges
+// AdminMiddleware ensures the user has admin-panel privileges based on JWT role claim
 func AdminMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Check if this is an admin request
-		isAdminRequest := c.GetHeader("X-Admin-Request") == "true"
-		if !isAdminRequest {
+		roleVal, exists := c.Get("role")
+		role, _ := roleVal.(string)
+		allowed := map[string]bool{"Admin": true, "Manufacturer": true, "3PL": true, "Partner": true}
+		if !exists || !allowed[role] {
 			c.JSON(http.StatusForbidden, models.ErrorResponse{
 				Error:   "Admin access required",
-				Message: "This endpoint requires admin privileges",
+				Message: "Valid admin/manufacturer/3PL/partner role required",
 			})
 			c.Abort()
 			return
 		}
-
 		c.Next()
 	}
 }
@@ -105,7 +108,7 @@ func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-Admin-Request")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)

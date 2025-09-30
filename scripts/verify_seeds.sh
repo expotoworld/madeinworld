@@ -230,7 +230,6 @@ verify_data_integrity() {
     log "Verifying data integrity..."
     
     local integrity_checks=(
-        "SELECT COUNT(*) FROM products WHERE manufacturer_id NOT IN (SELECT manufacturer_id FROM manufacturers)"
         "SELECT COUNT(*) FROM products WHERE store_id IS NOT NULL AND store_id NOT IN (SELECT store_id FROM stores)"
         "SELECT COUNT(*) FROM subcategories WHERE parent_category_id NOT IN (SELECT category_id FROM product_categories)"
         "SELECT COUNT(*) FROM product_images WHERE product_id NOT IN (SELECT product_id FROM products)"

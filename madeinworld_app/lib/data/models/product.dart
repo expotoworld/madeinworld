@@ -128,7 +128,7 @@ class Product {
       categoryIds: List<String>.from(json['category_ids'] ?? []),
       subcategoryIds: List<String>.from(json['subcategory_ids'] ?? []),
       stockLeft: json['stock_left'],
-      minimumOrderQuantity: json['minimum_order_quantity'] ?? 1,
+      minimumOrderQuantity: (json['minimum_order_quantity'] ?? 1) as int,
     );
   }
 
@@ -153,7 +153,7 @@ class Product {
       categoryIds: [], // Not available in backend response
       subcategoryIds: [], // Not available in backend response
       stockLeft: json['stock_left'],
-      minimumOrderQuantity: json['minimum_order_quantity'] ?? 1,
+      minimumOrderQuantity: (json['minimum_order_quantity'] ?? 1) as int,
     );
   }
 

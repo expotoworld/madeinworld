@@ -47,6 +47,12 @@ export default {
     } else if (originalPath.startsWith('/api/admin/orders') || originalPath.startsWith('/api/admin/carts')) {
       // Route admin orders and carts to the Order Service
       upstream = env.ORDER_SERVICE_URL;
+    } else if (originalPath.startsWith('/api/admin/manufacturer')) {
+      // Route manufacturer admin endpoints to the Order Service
+      upstream = env.ORDER_SERVICE_URL;
+    } else if (originalPath.startsWith('/api/manufacturer')) {
+      // Route non-admin manufacturer endpoints to the Order Service
+      upstream = env.ORDER_SERVICE_URL;
     } else if (originalPath.startsWith('/api/admin/users')) {
       // Route admin user management to the User Service
       upstream = env.USER_SERVICE_URL;

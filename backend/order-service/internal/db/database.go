@@ -183,29 +183,125 @@ func (db *Database) Health(ctx context.Context) error {
 	return db.Pool.Ping(ctx)
 }
 
-// InitSchema verifies the required tables exist
+// InitSchema verifies and gently migrates the required schema
 func (db *Database) InitSchema(ctx context.Context) error {
-	// Check if required tables exist
-	requiredTables := []string{"carts", "orders", "order_items", "products", "users"}
-
+	// 1) Check required tables
+	requiredTables := []string{"carts", "orders", "order_items", "products", "users", "stores"}
 	for _, tableName := range requiredTables {
 		query := `
 			SELECT EXISTS (
-				SELECT FROM information_schema.tables 
-				WHERE table_schema = 'public' 
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'public'
 				AND table_name = $1
 			);
 		`
-
 		var exists bool
-		err := db.Pool.QueryRow(ctx, query, tableName).Scan(&exists)
-		if err != nil {
+		if err := db.Pool.QueryRow(ctx, query, tableName).Scan(&exists); err != nil {
 			return fmt.Errorf("failed to check table %s: %w", tableName, err)
 		}
-
 		if !exists {
 			return fmt.Errorf("required table %s does not exist", tableName)
 		}
+	}
+
+	// 2) Ensure carts.mini_app_type exists
+	var hasMiniApp bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'carts' AND column_name = 'mini_app_type'
+		);
+	`).Scan(&hasMiniApp); err != nil {
+		return fmt.Errorf("failed to check carts.mini_app_type: %w", err)
+	}
+	if !hasMiniApp {
+		if _, err := db.Pool.Exec(ctx, `ALTER TABLE public.carts ADD COLUMN mini_app_type VARCHAR(50) NOT NULL DEFAULT 'RetailStore';`); err != nil {
+			return fmt.Errorf("failed to add carts.mini_app_type: %w", err)
+		}
+		log.Println("[ORDER-DB] Added carts.mini_app_type column")
+	}
+
+	// 3) Ensure orders.mini_app_type exists (used by CreateOrder)
+	var hasOrderMiniApp bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'mini_app_type'
+		);
+	`).Scan(&hasOrderMiniApp); err != nil {
+		return fmt.Errorf("failed to check orders.mini_app_type: %w", err)
+	}
+	if !hasOrderMiniApp {
+		if _, err := db.Pool.Exec(ctx, `ALTER TABLE public.orders ADD COLUMN mini_app_type VARCHAR(50) NOT NULL DEFAULT 'RetailStore';`); err != nil {
+			return fmt.Errorf("failed to add orders.mini_app_type: %w", err)
+		}
+		log.Println("[ORDER-DB] Added orders.mini_app_type column")
+	}
+
+	// 4) Ensure carts.store_id exists for location-based mini-apps
+	var hasStoreID bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'carts' AND column_name = 'store_id'
+		);
+	`).Scan(&hasStoreID); err != nil {
+		return fmt.Errorf("failed to check carts.store_id: %w", err)
+	}
+	if !hasStoreID {
+		if _, err := db.Pool.Exec(ctx, `ALTER TABLE public.carts ADD COLUMN store_id INTEGER NULL;`); err != nil {
+			return fmt.Errorf("failed to add carts.store_id: %w", err)
+		}
+		// Best-effort FK to stores (ignore error if stores not present or type mismatch)
+		if _, err := db.Pool.Exec(ctx, `
+			DO $$ BEGIN
+				ALTER TABLE public.carts ADD CONSTRAINT carts_store_id_fkey
+				FOREIGN KEY (store_id) REFERENCES public.stores(store_id) ON DELETE SET NULL;
+			EXCEPTION WHEN others THEN
+				-- ignore
+			END $$;
+		`); err == nil {
+			log.Println("[ORDER-DB] Added carts.store_id column and attempted FK to stores.store_id")
+		}
+	}
+
+	// 5) Ensure proper unique constraints/indexes for carts
+	// Drop legacy unique constraint if present (user_id, product_id)
+	if _, err := db.Pool.Exec(ctx, `
+		DO $$ BEGIN
+			IF EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = 'public.carts'::regclass AND conname = 'carts_user_id_product_id_key'
+			) THEN
+				ALTER TABLE public.carts DROP CONSTRAINT carts_user_id_product_id_key;
+			END IF;
+		END $$;
+	`); err != nil {
+		return fmt.Errorf("failed to drop legacy carts unique constraint: %w", err)
+	}
+
+	// Create partial uniques to handle NULL store_id semantics and per-store carts
+	if _, err := db.Pool.Exec(ctx, `
+		CREATE UNIQUE INDEX IF NOT EXISTS ux_carts_non_location
+		ON public.carts(user_id, product_id, mini_app_type)
+		WHERE store_id IS NULL;
+	`); err != nil {
+		return fmt.Errorf("failed to create ux_carts_non_location index: %w", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		CREATE UNIQUE INDEX IF NOT EXISTS ux_carts_location
+		ON public.carts(user_id, product_id, mini_app_type, store_id)
+		WHERE store_id IS NOT NULL;
+	`); err != nil {
+		return fmt.Errorf("failed to create ux_carts_location index: %w", err)
+	}
+
+	// Helpful secondary indexes
+	if _, err := db.Pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_carts_user_mini_app ON public.carts(user_id, mini_app_type);`); err != nil {
+		return fmt.Errorf("failed to create idx_carts_user_mini_app: %w", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_carts_user_mini_app_store ON public.carts(user_id, mini_app_type, store_id);`); err != nil {
+		return fmt.Errorf("failed to create idx_carts_user_mini_app_store: %w", err)
 	}
 
 	log.Println("Order service database schema verified successfully")

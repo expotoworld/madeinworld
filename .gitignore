@@ -1,3 +1,6 @@
+# Ignore entire auth-cleanup-lambda utility folder
+auth-cleanup-lambda/
+
 # =============================================================================
 # Made in World Project - Comprehensive .gitignore
 # =============================================================================
@@ -314,3 +317,7 @@ htmlcov/
 .directory
 .Trash-*
 .nfs*
+
+
+#MD file for roadmap
+/ebook_implementation.md

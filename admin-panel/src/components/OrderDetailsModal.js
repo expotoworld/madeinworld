@@ -28,7 +28,7 @@ import {
   Cancel as CancelIcon,
 } from '@mui/icons-material';
 
-const OrderDetailsModal = ({ open, onClose, order, onStatusUpdate }) => {
+const OrderDetailsModal = ({ open, onClose, order, onStatusUpdate, readOnly = false }) => {
   const [editingStatus, setEditingStatus] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [statusReason, setStatusReason] = useState('');
@@ -136,7 +136,17 @@ const OrderDetailsModal = ({ open, onClose, order, onStatusUpdate }) => {
                 </Box>
                 <Box display="flex" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2" color="text.secondary">Status:</Typography>
-                  {editingStatus ? (
+                  {readOnly ? (
+                    <Chip
+                      label={orderInfo.status.charAt(0).toUpperCase() + orderInfo.status.slice(1)}
+                      size="small"
+                      sx={{
+                        backgroundColor: statusColors[orderInfo.status] || '#gray',
+                        color: 'white',
+                        fontWeight: 500,
+                      }}
+                    />
+                  ) : editingStatus ? (
                     <Box display="flex" alignItems="center" gap={1}>
                       <TextField
                         select

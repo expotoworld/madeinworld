@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/models"
-	"github.com/expomadeinworld/madeinworld/auth-service/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -31,18 +30,28 @@ func (h *Handler) AdminSendVerification(c *gin.Context) {
 		return
 	}
 
-	// Check if email is the authorized admin email
-	authorizedEmail := os.Getenv("ADMIN_EMAIL")
-	if authorizedEmail == "" {
-		authorizedEmail = os.Getenv("SES_FROM_EMAIL") // Fallback for backward compatibility
-	}
-	if req.Email != authorizedEmail {
-		c.JSON(http.StatusForbidden, models.ErrorResponse{
-			Error:   "Unauthorized email",
-			Message: "This email is not authorized for admin access",
-		})
+	// Validate email belongs to eligible admin-panel user (role + active status)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	userID, role, status, err := h.DB.GetUserRoleStatusByEmail(ctx, req.Email)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Unauthorized email", Message: "This email is not authorized for admin access"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "User lookup failed", Message: err.Error()})
 		return
 	}
+	allowed := map[string]bool{"Admin": true, "Manufacturer": true, "3PL": true, "Partner": true}
+	if !allowed[role] {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Access denied", Message: "Role not permitted for admin panel"})
+		return
+	}
+	if strings.ToLower(status) != "active" {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Account deactivated", Message: "This account is not active"})
+		return
+	}
+	_ = userID // reserved for future use
 
 	// Get client IP
 	clientIP := getClientIP(c)
@@ -52,7 +61,7 @@ func (h *Handler) AdminSendVerification(c *gin.Context) {
 	fmt.Printf("[ADMIN_AUTH] Verification request from IP: %s, Email: %s, UserAgent: %s\n",
 		clientIP, req.Email, userAgent)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Check rate limiting
@@ -120,7 +129,11 @@ func (h *Handler) AdminSendVerification(c *gin.Context) {
 	}
 
 	// Send email
-	emailService := services.NewEmailService()
+	if h.Email == nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Email service unavailable", Message: "Email service not configured"})
+		return
+	}
+	emailService := h.Email
 	emailData := models.EmailVerificationData{
 		Code:         code,
 		Email:        req.Email,
@@ -168,16 +181,25 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Check if email is the authorized admin email
-	authorizedEmail := os.Getenv("ADMIN_EMAIL")
-	if authorizedEmail == "" {
-		authorizedEmail = os.Getenv("SES_FROM_EMAIL") // Fallback for backward compatibility
+	// Validate email belongs to eligible admin-panel user (role + active status)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	userID, role, status, err := h.DB.GetUserRoleStatusByEmail(ctx, req.Email)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Unauthorized email", Message: "This email is not authorized for admin access"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "User lookup failed", Message: err.Error()})
+		return
 	}
-	if req.Email != authorizedEmail {
-		c.JSON(http.StatusForbidden, models.ErrorResponse{
-			Error:   "Unauthorized email",
-			Message: "This email is not authorized for admin access",
-		})
+	allowed := map[string]bool{"Admin": true, "Manufacturer": true, "3PL": true, "Partner": true}
+	if !allowed[role] {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Access denied", Message: "Role not permitted for admin panel"})
+		return
+	}
+	if strings.ToLower(status) != "active" {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "Account deactivated", Message: "This account is not active"})
 		return
 	}
 
@@ -189,7 +211,7 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 	fmt.Printf("[ADMIN_AUTH] Code verification attempt from IP: %s, Email: %s, UserAgent: %s\n",
 		clientIP, req.Email, userAgent)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Get verification code from database
@@ -247,9 +269,13 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Generate JWT token for admin
-	adminUserID := "admin-" + strings.ReplaceAll(req.Email, "@", "-")
-	token, err := h.generateJWTToken(adminUserID, req.Email)
+	// Update last login timestamp for the user
+	if err := h.DB.UpdateLastLogin(ctx, userID); err != nil {
+		fmt.Printf("Failed to update last login for user %s: %v\n", userID, err)
+	}
+
+	// Generate JWT token for admin with role claim
+	token, err := h.generateJWTToken(userID, req.Email, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to generate token",
@@ -265,7 +291,7 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 	// Create admin user response
 	adminUser := models.AdminUser{
 		Email:     req.Email,
-		Role:      "Administrator",
+		Role:      role,
 		CreatedAt: time.Now(),
 	}
 

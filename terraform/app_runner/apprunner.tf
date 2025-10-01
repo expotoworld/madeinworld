@@ -54,6 +54,15 @@ resource "aws_apprunner_service" "main_services" {
   service_name                    = "${var.project}-${each.key}-dev"
   auto_scaling_configuration_arn = aws_apprunner_auto_scaling_configuration_version.default.arn
 
+  lifecycle {
+    ignore_changes = [
+      # Let CI deploy job control the exact image tag; avoid thrashing with Terraform
+      source_configuration[0].image_repository[0].image_identifier,
+      # CI may normalize DB_PASSWORD secret ARN (strip :password::); avoid churn
+      source_configuration[0].image_repository[0].image_configuration[0].runtime_environment_secrets,
+    ]
+  }
+
 
   source_configuration {
     authentication_configuration {

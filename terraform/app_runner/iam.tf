@@ -40,6 +40,82 @@ resource "aws_iam_role" "apprunner_instance_role" {
   })
 }
 
+# Dedicated instance role for auth-service (to use SNS publish)
+resource "aws_iam_role" "apprunner_instance_role_auth" {
+  name = "${var.project}-apprunner-instance-role-auth"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect    = "Allow",
+        Principal = { Service = "tasks.apprunner.amazonaws.com" },
+        Action    = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+# Reuse existing secrets policy for auth role
+resource "aws_iam_role_policy_attachment" "apprunner_auth_secrets_access" {
+  role       = aws_iam_role.apprunner_instance_role_auth.name
+  policy_arn = aws_iam_policy.apprunner_secrets_policy.arn
+}
+
+# Reuse S3 put policy for auth role (compatibility)
+resource "aws_iam_role_policy_attachment" "apprunner_auth_s3_put_attach" {
+  role       = aws_iam_role.apprunner_instance_role_auth.name
+  policy_arn = aws_iam_policy.apprunner_s3_put_policy.arn
+}
+
+# SNS publish policy for auth-service
+data "aws_iam_policy_document" "apprunner_auth_sns_doc" {
+  statement {
+    effect  = "Allow"
+    actions = [
+      "sns:Publish",
+      "sns:GetSMSAttributes"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "apprunner_auth_sns_policy" {
+  name        = "${var.project}-apprunner-auth-sns"
+  description = "Allow auth-service to publish SMS via SNS"
+  policy      = data.aws_iam_policy_document.apprunner_auth_sns_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "apprunner_auth_sns_attach" {
+  role       = aws_iam_role.apprunner_instance_role_auth.name
+  policy_arn = aws_iam_policy.apprunner_auth_sns_policy.arn
+}
+
+# SES send email policy for auth-service
+data "aws_iam_policy_document" "apprunner_auth_ses_doc" {
+  statement {
+    effect  = "Allow"
+    actions = [
+      "ses:SendEmail",
+      "ses:SendRawEmail"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "apprunner_auth_ses_policy" {
+  name        = "${var.project}-apprunner-auth-ses"
+  description = "Allow auth-service to send email via SES"
+  policy      = data.aws_iam_policy_document.apprunner_auth_ses_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "apprunner_auth_ses_attach" {
+  role       = aws_iam_role.apprunner_instance_role_auth.name
+  policy_arn = aws_iam_policy.apprunner_auth_ses_policy.arn
+}
+
+
+
 # Construct policy document granting read access to specified secret ARNs
 data "aws_iam_policy_document" "apprunner_secrets_doc" {
   dynamic "statement" {
@@ -101,6 +177,7 @@ data "aws_iam_policy_document" "github_actions_passrole_doc" {
     resources = [
       aws_iam_role.apprunner_ecr_access_role.arn,
       aws_iam_role.apprunner_instance_role.arn,
+      aws_iam_role.apprunner_instance_role_auth.arn,
     ]
   }
 }

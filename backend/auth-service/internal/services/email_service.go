@@ -1,42 +1,41 @@
 package services
 
 import (
+	"context"
 	"crypto/rand"
-	"crypto/tls"
 	"fmt"
 	"math/big"
-	"net/smtp"
 	"os"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	sesv2 "github.com/aws/aws-sdk-go-v2/service/sesv2"
+	sestypes "github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/models"
 )
 
-// EmailService handles email sending via AWS SES SMTP
+// EmailService handles email sending via AWS SES (SESv2 API)
 type EmailService struct {
-	smtpHost     string
-	smtpPort     string
-	smtpUsername string
-	smtpPassword string
-	fromEmail    string
+	sesClient *sesv2.Client
+	fromEmail string
 }
 
-// NewEmailService creates a new email service instance with service-specific config
+// NewEmailService creates a new email service instance using AWS SDK (role-based)
 func NewEmailService(cfg aws.Config) *EmailService {
 	region := cfg.Region
 	if region == "" {
 		region = os.Getenv("SES_AWS_REGION")
 		if region == "" {
-			region = "eu-central-1"
+			if os.Getenv("AWS_DEFAULT_REGION") != "" {
+				region = os.Getenv("AWS_DEFAULT_REGION")
+			} else {
+				region = "eu-central-1"
+			}
 		}
 	}
+	cfg.Region = region
 	return &EmailService{
-		smtpHost:     fmt.Sprintf("email-smtp.%s.amazonaws.com", region),
-		smtpPort:     "587",
-		smtpUsername: os.Getenv("SES_AWS_ACCESS_KEY_ID"),
-		smtpPassword: os.Getenv("SES_AWS_SECRET_ACCESS_KEY"),
-		fromEmail:    os.Getenv("SES_FROM_EMAIL"),
+		sesClient: sesv2.NewFromConfig(cfg),
+		fromEmail: os.Getenv("SES_FROM_EMAIL"),
 	}
 }
 
@@ -67,38 +66,23 @@ func generateRandomID() string {
 	return string(result)
 }
 
-// sendEmail sends an email via AWS SES SMTP with enhanced anti-spam headers
+// sendEmail sends an email via AWS SESv2 using the instance role
 func (e *EmailService) sendEmail(toEmail, subject, htmlBody string) error {
-	// Set up authentication
-	auth := smtp.PlainAuth("", e.smtpUsername, e.smtpPassword, e.smtpHost)
-
-	// Use professional domain for From address, Gmail for Reply-To
-	replyToEmail := "expotobsrl@gmail.com"
-
-	// Create enhanced email message with anti-spam headers
-	message := fmt.Sprintf(`From: Made in World Admin <%s>
-To: %s
-Reply-To: %s
-Subject: %s
-Date: %s
-Message-ID: <%d.%s@expomadeinworld.com>
-MIME-Version: 1.0
-Content-Type: text/html; charset=UTF-8
-X-Mailer: Made in World Admin Panel v2.0
-X-Priority: 3
-X-MSMail-Priority: Normal
-List-Unsubscribe: <mailto:unsubscribe@expomadeinworld.com>
-
-%s`, e.fromEmail, toEmail, replyToEmail, subject,
-		time.Now().Format(time.RFC1123Z),
-		time.Now().Unix(), generateRandomID(), htmlBody)
-
-	// Send the email
-	err := smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.fromEmail, []string{toEmail}, []byte(message))
-	if err != nil {
+	replyTo := "expotobsrl@gmail.com"
+	input := &sesv2.SendEmailInput{
+		FromEmailAddress: aws.String(e.fromEmail),
+		Destination:      &sestypes.Destination{ToAddresses: []string{toEmail}},
+		ReplyToAddresses: []string{replyTo},
+		Content: &sestypes.EmailContent{
+			Simple: &sestypes.Message{
+				Subject: &sestypes.Content{Data: aws.String(subject)},
+				Body:    &sestypes.Body{Html: &sestypes.Content{Data: aws.String(htmlBody)}},
+			},
+		},
+	}
+	if _, err := e.sesClient.SendEmail(context.Background(), input); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
-
 	return nil
 }
 
@@ -417,35 +401,4 @@ func (e *EmailService) generateUserEmailHTML(data models.EmailVerificationData) 
 		data.UserAgent,
 		data.Email,
 	)
-}
-
-// TestConnection tests the SMTP connection
-func (e *EmailService) TestConnection() error {
-	// Test TLS connection
-	conn, err := tls.Dial("tcp", e.smtpHost+":465", &tls.Config{
-		ServerName: e.smtpHost,
-	})
-	if err == nil {
-		conn.Close()
-	}
-
-	// Test SMTP auth
-	auth := smtp.PlainAuth("", e.smtpUsername, e.smtpPassword, e.smtpHost)
-
-	// Create a simple test message
-	testMessage := fmt.Sprintf(`From: %s
-To: %s
-Subject: AWS SES Connection Test
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-
-This is a connection test for AWS SES SMTP.`, e.fromEmail, e.fromEmail)
-
-	// Try to send test email to self
-	err = smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.fromEmail, []string{e.fromEmail}, []byte(testMessage))
-	if err != nil {
-		return fmt.Errorf("SMTP connection test failed: %w", err)
-	}
-
-	return nil
 }

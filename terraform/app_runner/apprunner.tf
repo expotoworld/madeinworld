@@ -88,12 +88,7 @@ resource "aws_apprunner_service" "main_services" {
         runtime_environment_secrets = merge(
           {},
           length(trimspace(var.secret_arn_db_password)) > 0 ? { DB_PASSWORD = var.secret_arn_db_password } : {},
-          length(trimspace(var.secret_arn_jwt_secret)) > 0 ? { JWT_SECRET = var.secret_arn_jwt_secret } : {},
-          # Only inject SES SMTP creds into auth-service; other services use instance role for AWS
-          (each.key == "auth-service" && length(trimspace(var.secret_arn_ses_user)) > 0 && length(trimspace(var.secret_arn_ses_pass)) > 0) ? {
-            AWS_ACCESS_KEY_ID     = var.secret_arn_ses_user
-            AWS_SECRET_ACCESS_KEY = var.secret_arn_ses_pass
-          } : {}
+          length(trimspace(var.secret_arn_jwt_secret)) > 0 ? { JWT_SECRET = var.secret_arn_jwt_secret } : {}
         )
       }
     }
@@ -101,7 +96,7 @@ resource "aws_apprunner_service" "main_services" {
   }
 
   instance_configuration {
-    instance_role_arn = aws_iam_role.apprunner_instance_role.arn
+    instance_role_arn = each.key == "auth-service" ? aws_iam_role.apprunner_instance_role_auth.arn : aws_iam_role.apprunner_instance_role.arn
     cpu               = "256"   # 0.25 vCPU
     memory            = "512"   # 0.5 GB
   }

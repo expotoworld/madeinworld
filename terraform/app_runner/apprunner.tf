@@ -3,8 +3,6 @@
 locals {
   db_secret_base  = replace(var.secret_arn_db_password, "/:[^:]+::$/", "")
   jwt_secret_base = replace(var.secret_arn_jwt_secret, "/:[^:]+::$/", "")
-  ses_user_base   = replace(var.secret_arn_ses_user, "/:[^:]+::$/", "")
-  ses_pass_base   = replace(var.secret_arn_ses_pass, "/:[^:]+::$/", "")
 
   # Build a clean list of secret ARNs (skip empty values) to avoid malformed IAM policies
   secret_arns = [for v in [
@@ -12,10 +10,6 @@ locals {
     length(trimspace(var.secret_arn_db_password)) > 0 ? var.secret_arn_db_password : "",
     length(trimspace(var.secret_arn_jwt_secret)) > 0 ? local.jwt_secret_base : "",
     length(trimspace(var.secret_arn_jwt_secret)) > 0 ? var.secret_arn_jwt_secret : "",
-    length(trimspace(var.secret_arn_ses_user)) > 0 ? local.ses_user_base : "",
-    length(trimspace(var.secret_arn_ses_user)) > 0 ? var.secret_arn_ses_user : "",
-    length(trimspace(var.secret_arn_ses_pass)) > 0 ? local.ses_pass_base : "",
-    length(trimspace(var.secret_arn_ses_pass)) > 0 ? var.secret_arn_ses_pass : "",
   ] : v if v != ""]
 
   # Ensure we always use Neon connection pooler. If the provided host already contains

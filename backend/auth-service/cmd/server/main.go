@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/api"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/db"
 	"github.com/expomadeinworld/madeinworld/auth-service/internal/logging"
@@ -45,37 +44,34 @@ func main() {
 	}
 
 	// Initialize AWS configs separately for SES (email) and SNS (SMS)
-	// SES credentials
-	sesCreds := credentials.NewStaticCredentialsProvider(
-		os.Getenv("SES_AWS_ACCESS_KEY_ID"),
-		os.Getenv("SES_AWS_SECRET_ACCESS_KEY"),
-		"",
-	)
+	// SES config: use App Runner instance role (no SMTP secrets in prod)
 	sesRegion := os.Getenv("SES_AWS_REGION")
 	if sesRegion == "" {
-		sesRegion = "eu-central-1"
+		if os.Getenv("AWS_DEFAULT_REGION") != "" {
+			sesRegion = os.Getenv("AWS_DEFAULT_REGION")
+		} else {
+			sesRegion = "eu-central-1"
+		}
 	}
 	sesCfg, sesErr := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(sesRegion),
-		config.WithCredentialsProvider(sesCreds),
 	)
 	if sesErr != nil {
 		log.Printf("[WARN] SES AWS config load failed: %v", sesErr)
 	}
 
-	// SNS credentials
-	snsCreds := credentials.NewStaticCredentialsProvider(
-		os.Getenv("SNS_AWS_ACCESS_KEY_ID"),
-		os.Getenv("SNS_AWS_SECRET_ACCESS_KEY"),
-		"",
-	)
+	// SNS config: use App Runner instance role (no static keys in prod)
 	snsRegion := os.Getenv("SNS_AWS_REGION")
 	if snsRegion == "" {
-		snsRegion = "eu-central-1"
+		// fall back to AWS_DEFAULT_REGION if set, otherwise eu-central-1
+		if os.Getenv("AWS_DEFAULT_REGION") != "" {
+			snsRegion = os.Getenv("AWS_DEFAULT_REGION")
+		} else {
+			snsRegion = "eu-central-1"
+		}
 	}
 	snsCfg, snsErr := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(snsRegion),
-		config.WithCredentialsProvider(snsCreds),
 	)
 	if snsErr != nil {
 		log.Printf("[WARN] SNS AWS config load failed: %v", snsErr)

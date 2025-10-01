@@ -192,3 +192,28 @@ resource "aws_iam_role_policy_attachment" "github_actions_passrole_attach" {
   role       = "GitHubActions-MadeInWorld-Role"
   policy_arn = aws_iam_policy.github_actions_passrole.arn
 }
+
+# Read-only Cost Explorer permission for GitHub Actions to detect existing anomaly monitors
+# This enables the workflow step that auto-detects a DIMENSIONAL SERVICE monitor in us-east-1
+# and sets TF_VAR_ce_monitor_arn accordingly (we keep creation disabled by default).
+data "aws_iam_policy_document" "github_actions_ce_read_doc" {
+  statement {
+    effect  = "Allow"
+    actions = [
+      "ce:GetAnomalyMonitors"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "github_actions_ce_read" {
+  name        = "${var.project}-github-actions-ce-read"
+  description = "Allow GitHub Actions to read CE anomaly monitors"
+  policy      = data.aws_iam_policy_document.github_actions_ce_read_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_ce_read_attach" {
+  role       = "GitHubActions-MadeInWorld-Role"
+  policy_arn = aws_iam_policy.github_actions_ce_read.arn
+}
+

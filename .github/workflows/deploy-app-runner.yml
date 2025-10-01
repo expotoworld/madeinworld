@@ -144,13 +144,41 @@ jobs:
           ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn | [0]" --output text)
           NEW_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG"
           echo "Updating service $SERVICE_NAME to image: $NEW_IMAGE"
-          OP_ID=$(aws apprunner update-service \
-            --service-arn "$ARN" \
-            --source-configuration "{\"ImageRepository\":{\"ImageIdentifier\":\"$NEW_IMAGE\",\"ImageRepositoryType\":\"ECR\"}}" \
-            --query 'OperationId' --output text)
-          echo "Triggered update-service to SHA-tagged image: $NEW_IMAGE"
-          echo "OperationId: $OP_ID"
-          echo "op_id=$OP_ID" >> $GITHUB_OUTPUT
+          # Wait for any in-progress operations to finish
+          for i in {1..60}; do
+            OP_IN_PROGRESS=$(aws apprunner list-operations --service-arn "$ARN" --query "length(OperationSummaryList[?Status=='IN_PROGRESS' || Status=='PENDING'])" --output text)
+            echo "[pre-update $i] operations in-progress: $OP_IN_PROGRESS"
+            if [ "$OP_IN_PROGRESS" = "0" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          # Retry update-service while App Runner reports OPERATION_IN_PROGRESS
+          ATTEMPTS=30
+          for i in $(seq 1 $ATTEMPTS); do
+            set +e
+            OP_ID=$(aws apprunner update-service \
+              --service-arn "$ARN" \
+              --source-configuration "{\"ImageRepository\":{\"ImageIdentifier\":\"$NEW_IMAGE\",\"ImageRepositoryType\":\"ECR\"}}" \
+              --query 'OperationId' --output text 2>err.txt)
+            EXIT=$?
+            set -e
+            if [ $EXIT -eq 0 ] && [ -n "$OP_ID" ] && [ "$OP_ID" != "None" ]; then
+              echo "Triggered update-service to SHA-tagged image: $NEW_IMAGE"
+              echo "OperationId: $OP_ID"
+              echo "op_id=$OP_ID" >> $GITHUB_OUTPUT
+              break
+            fi
+            if grep -q "InvalidStateException" err.txt; then
+              echo "Service in OPERATION_IN_PROGRESS; retrying in 10s (attempt $i/$ATTEMPTS)..."
+              sleep 10
+              continue
+            fi
+            echo "update-service failed (non-retryable):"
+            cat err.txt || true
+            exit 1
+          done
 
       - name: Wait for App Runner deployment to complete
         env:

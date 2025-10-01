@@ -61,17 +61,6 @@ variable "secret_arn_jwt_secret" {
   }
 }
 
-variable "secret_arn_ses_user" {
-  description = "ARN of the AWS Secrets Manager secret for the SES SMTP username."
-  type        = string
-  sensitive   = true
-}
-
-variable "secret_arn_ses_pass" {
-  description = "ARN of the AWS Secrets Manager secret for the SES SMTP password."
-  type        = string
-  sensitive   = true
-}
 
 variable "ses_from_email" {
   description = "The verified 'From' email address for SES."
@@ -79,19 +68,6 @@ variable "ses_from_email" {
 }
 
 # Enable-email validation: either all three are empty (email disabled) or all three are set (email enabled)
-locals {
-  _ses_any_set = length(trimspace(var.ses_from_email)) > 0 || length(trimspace(var.secret_arn_ses_user)) > 0 || length(trimspace(var.secret_arn_ses_pass)) > 0
-}
-
-# Using a null_resource to host a precondition-like validation because variable blocks cannot express cross-variable conditions directly.
-resource "null_resource" "validate_email_trio" {
-  lifecycle {
-    precondition {
-      condition     = (local._ses_any_set == false) || (length(trimspace(var.ses_from_email)) > 0 && length(trimspace(var.secret_arn_ses_user)) > 0 && length(trimspace(var.secret_arn_ses_pass)) > 0)
-      error_message = "To enable email, set SES_FROM_EMAIL and both SES SMTP secret ARNs (user+pass). Otherwise leave all three empty."
-    }
-  }
-}
 
 # Optional: Use an existing Cost Explorer DIMENSIONAL SERVICE anomaly monitor by ARN
 # By default, we DO NOT create a new monitor to avoid hitting account limits.

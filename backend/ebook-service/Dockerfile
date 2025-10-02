@@ -1,5 +1,5 @@
 # Minimal Dockerfile for ebook-service
-FROM golang:1.22 as builder
+FROM golang:1.23 as builder
 WORKDIR /app
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM gcr.io/distroless/base-debian12
 WORKDIR /
 COPY --from=builder /ebook-service /ebook-service
-EXPOSE 8080
+EXPOSE 8084
 USER nonroot:nonroot
 ENTRYPOINT ["/ebook-service"]
 

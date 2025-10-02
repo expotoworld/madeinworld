@@ -218,3 +218,28 @@ resource "aws_iam_role_policy_attachment" "github_actions_ce_read_attach" {
   policy_arn = aws_iam_policy.github_actions_ce_read.arn
 }
 
+# Allow GitHub Actions role to manage versions of the apprunner S3 put policy
+# Needed because Terraform updates the customer-managed policy and may need to delete old versions
+# to stay within AWS's 5-version limit.
+data "aws_iam_policy_document" "github_actions_policy_version_mgmt_doc" {
+  statement {
+    effect  = "Allow"
+    actions = [
+      "iam:CreatePolicyVersion",
+      "iam:DeletePolicyVersion"
+    ]
+    resources = [aws_iam_policy.apprunner_s3_put_policy.arn]
+  }
+}
+
+resource "aws_iam_policy" "github_actions_policy_version_mgmt" {
+  name        = "${var.project}-github-actions-policy-version-mgmt"
+  description = "Allow GitHub Actions to manage versions of apprunner S3 put policy"
+  policy      = data.aws_iam_policy_document.github_actions_policy_version_mgmt_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_policy_version_mgmt_attach" {
+  role       = "GitHubActions-MadeInWorld-Role"
+  policy_arn = aws_iam_policy.github_actions_policy_version_mgmt.arn
+}
+

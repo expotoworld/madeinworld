@@ -64,6 +64,7 @@ func main() {
 
 	// Health
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	r.GET("/live", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	// Public/app-auth routes (require JWT but any role is fine): published reading
 	app := r.Group("/api")

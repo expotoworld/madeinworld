@@ -204,7 +204,10 @@ data "aws_iam_policy_document" "github_actions_ce_read_doc" {
     effect  = "Allow"
     actions = [
       "ce:GetAnomalyMonitors",
-      "ce:GetAnomalySubscriptions"
+      "ce:GetAnomalySubscriptions",
+      "ce:CreateAnomalySubscription",
+      "ce:UpdateAnomalySubscription",
+      "ce:DeleteAnomalySubscription"
     ]
     resources = ["*"]
   }

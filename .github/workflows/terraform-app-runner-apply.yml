@@ -84,6 +84,31 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Ensure required ECR images exist (latest tag)
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        shell: bash
+        run: |
+          set -e
+          REPOS=(
+            "madeinworld/auth-service"
+            "madeinworld/catalog-service"
+            "madeinworld/order-service"
+            "madeinworld/user-service"
+            "madeinworld/ebook-service"
+          )
+          for REPO in "${REPOS[@]}"; do
+            echo "Ensuring ECR image exists for $REPO:latest"
+            for i in {1..60}; do
+              if aws ecr describe-images --repository-name "$REPO" --image-ids imageTag=latest --query 'imageDetails[0].imageDigest' --output text >/dev/null 2>&1; then
+                echo "Found latest for $REPO"
+                break
+              fi
+              echo "latest not found for $REPO yet; waiting 10s (attempt $i/60)"
+              sleep 10
+            done
+          done
+
       - name: Detect existing CE Service monitor (sets TF_VAR_ce_monitor_arn if found)
         shell: bash
         run: |

@@ -143,6 +143,28 @@ jobs:
           role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+
+      - name: Import existing CE subscription if it exists (idempotent)
+        shell: bash
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set +e
+          # Look up subscription by name in us-east-1
+          SUB_ARN=$(aws ce get-anomaly-subscriptions --region us-east-1 \
+            --query "Subscriptions[?Name=='cloudwatch-anomaly-alerts'].Arn | [0]" --output text 2>/dev/null || true)
+          echo "Existing CE subscription ARN: $SUB_ARN"
+          if [ -n "$SUB_ARN" ] && [ "$SUB_ARN" != "None" ]; then
+            if terraform state list | grep -q '^aws_ce_anomaly_subscription\.cloudwatch_alerts\[0\]$'; then
+              echo "Terraform already has CE subscription in state; skipping import"
+            else
+              echo "Importing CE subscription into Terraform state"
+              terraform import 'aws_ce_anomaly_subscription.cloudwatch_alerts[0]' "$SUB_ARN" || true
+            fi
+          else
+            echo "No existing CE subscription found; Terraform will create it if enabled"
+          fi
+
       - name: Terraform Plan (full)
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m
 

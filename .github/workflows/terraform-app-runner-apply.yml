@@ -168,6 +168,27 @@ jobs:
       - name: Terraform Plan (full)
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m
 
+
+      - name: Ensure CE subscription is imported (safety before apply)
+        shell: bash
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set +e
+          SUB_ARN=$(aws ce get-anomaly-subscriptions --region us-east-1 --max-results 100 \
+            --query "AnomalySubscriptions[?SubscriptionName=='cloudwatch-anomaly-alerts'].SubscriptionArn | [0]" --output text 2>/dev/null || true)
+          echo "Safety import check — Existing CE subscription ARN: $SUB_ARN"
+          if [ -n "$SUB_ARN" ] && [ "$SUB_ARN" != "None" ]; then
+            if terraform state list | grep -q '^aws_ce_anomaly_subscription\.cloudwatch_alerts\[0\]$'; then
+              echo "Already in state; skipping safety import"
+            else
+              echo "Importing CE subscription into Terraform state (safety pass)"
+              terraform import 'aws_ce_anomaly_subscription.cloudwatch_alerts[0]' "$SUB_ARN" || true
+            fi
+          else
+            echo "No existing CE subscription found during safety check; continuing"
+          fi
+
       - name: Terraform Apply (all resources)
         run: |
           terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m

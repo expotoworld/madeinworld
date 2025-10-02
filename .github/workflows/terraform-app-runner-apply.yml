@@ -129,8 +129,18 @@ jobs:
           fi
 
       - name: Remove CE subscription from state (best effort)
+        shell: bash
         run: |
-          terraform state rm 'aws_ce_anomaly_subscription.cloudwatch_alerts[0]' || true
+          set +e
+          MATCHES=$(terraform state list | grep '^aws_ce_anomaly_subscription\.cloudwatch_alerts' || true)
+          if [ -z "$MATCHES" ]; then
+            echo "No CE subscription instances found in state; skipping removal"
+          else
+            echo "Removing CE subscription instances from state:"; echo "$MATCHES"
+            while IFS= read -r addr; do
+              terraform state rm "$addr" || true
+            done <<< "$MATCHES"
+          fi
 
       - name: Terraform Plan (initial)
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m

@@ -26,12 +26,10 @@ resource "aws_ce_anomaly_subscription" "cloudwatch_alerts" {
   monitor_arn_list = [local.resolved_ce_monitor_arn]
 
   threshold_expression {
-    and {
-      dimension {
-        key           = "ANOMALY_TOTAL_IMPACT_ABSOLUTE"
-        values        = ["5"] // USD absolute daily impact
-        match_options = ["GREATER_THAN_OR_EQUAL"]
-      }
+    dimension {
+      key           = "ANOMALY_TOTAL_IMPACT_ABSOLUTE"
+      values        = ["5"] # USD absolute daily impact
+      match_options = ["GREATER_THAN_OR_EQUAL"]
     }
   }
 

@@ -151,8 +151,8 @@ jobs:
         run: |
           set +e
           # Look up subscription by name in us-east-1
-          SUB_ARN=$(aws ce get-anomaly-subscriptions --region us-east-1 \
-            --query "Subscriptions[?Name=='cloudwatch-anomaly-alerts'].Arn | [0]" --output text 2>/dev/null || true)
+          SUB_ARN=$(aws ce get-anomaly-subscriptions --region us-east-1 --max-results 100 \
+            --query "Subscriptions[?Name=='cloudwatch-anomaly-alerts'].SubscriptionArn | [0]" --output text 2>/dev/null || true)
           echo "Existing CE subscription ARN: $SUB_ARN"
           if [ -n "$SUB_ARN" ] && [ "$SUB_ARN" != "None" ]; then
             if terraform state list | grep -q '^aws_ce_anomaly_subscription\.cloudwatch_alerts\[0\]$'; then

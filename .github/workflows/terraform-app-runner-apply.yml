@@ -59,7 +59,7 @@ jobs:
           echo "TF_VAR_create_ce_anomaly_monitor=false" >> $GITHUB_ENV
           # Disable the canary IAM policy attachments by default
           echo "TF_VAR_enable_auth_ready_canary=false" >> $GITHUB_ENV
-          echo "TF_VAR_enable_ce_anomaly_subscription=false" >> $GITHUB_ENV
+          echo "TF_VAR_enable_ce_anomaly_subscription=true" >> $GITHUB_ENV
 
 
 
@@ -126,20 +126,6 @@ jobs:
             echo "No existing CE SERVICE monitor found; Terraform will NOT create one by default."
             echo "TF_VAR_create_ce_anomaly_monitor=false" >> $GITHUB_ENV
 
-          fi
-
-      - name: Remove CE subscription from state (best effort)
-        shell: bash
-        run: |
-          set +e
-          MATCHES=$(terraform state list | grep '^aws_ce_anomaly_subscription\.cloudwatch_alerts' || true)
-          if [ -z "$MATCHES" ]; then
-            echo "No CE subscription instances found in state; skipping removal"
-          else
-            echo "Removing CE subscription instances from state:"; echo "$MATCHES"
-            while IFS= read -r addr; do
-              terraform state rm "$addr" || true
-            done <<< "$MATCHES"
           fi
 
       - name: Terraform Plan (initial)

@@ -151,7 +151,8 @@ data "aws_iam_policy_document" "apprunner_s3_put_doc" {
       "s3:PutObjectAcl"
     ]
     resources = [
-      "arn:aws:s3:::madeinworld-product-images-admin/*"
+      "arn:aws:s3:::madeinworld-product-images-admin/*",
+      "arn:aws:s3:::madeinworld-ebook-versions-eu-central-1/*"
     ]
   }
 }

@@ -23,6 +23,7 @@ locals {
     catalog-service = "8080"
     order-service   = "8082"
     user-service    = "8083"
+    ebook-service   = "8084"
   }
 }
 
@@ -87,6 +88,9 @@ resource "aws_apprunner_service" "main_services" {
           SERVICE_BASE_URL = "https://device-api.expomadeinworld.com"
           } : each.key == "auth-service" ? {
           ADMIN_EMAIL = "expotobsrl@gmail.com"
+        } : each.key == "ebook-service" ? {
+          EBOOK_S3_BUCKET   = "madeinworld-ebook-versions-eu-central-1"
+          EDITOR_ORIGIN     = "https://huashangdao.expomadeinworld.com"
         } : {})
         runtime_environment_secrets = merge(
           {},

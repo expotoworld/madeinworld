@@ -1,0 +1,54 @@
+name: Deploy Ebook Editor (S3/CloudFront)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - 'ebook-editor/**'
+      - '.github/workflows/deploy-ebook-editor.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'ebook-editor/package-lock.json'
+
+      - name: Install deps
+        working-directory: ./ebook-editor
+        run: npm ci || npm install
+
+      - name: Build
+        working-directory: ./ebook-editor
+        run: npm run build
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Sync to S3
+        env:
+          BUCKET: ${{ secrets.EBOOK_EDITOR_BUCKET || 'madeinworld-ebook-editor-site-eu-central-1' }}
+        run: |
+          aws s3 sync ./ebook-editor/dist s3://$BUCKET/ --delete --cache-control max-age=31536000,public
+
+      - name: Invalidate CloudFront (if configured)
+        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        env:
+          DIST_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"

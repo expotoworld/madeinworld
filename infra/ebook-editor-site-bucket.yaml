@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket for hosting the ebook editor static site (fronted by CloudFront)
+Parameters:
+  BucketName:
+    Type: String
+    Default: madeinworld-ebook-editor-site-eu-central-1
+Resources:
+  EditorSiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+Outputs:
+  BucketName:
+    Value: !Ref EditorSiteBucket
+    Export:
+      Name: EbookEditorSiteBucketName
+

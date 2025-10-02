@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket for ebook JSON versions with autosave 7-day lifecycle
+Parameters:
+  BucketName:
+    Type: String
+    Default: madeinworld-ebook-versions-eu-central-1
+Resources:
+  VersionsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutosaveExpire7Days
+            Status: Enabled
+            Prefix: ebook/versions/autosave/
+            ExpirationInDays: 7
+Outputs:
+  BucketName:
+    Value: !Ref VersionsBucket
+    Export:
+      Name: EbookVersionsBucketName
+

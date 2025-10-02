@@ -161,7 +161,6 @@ resource "aws_iam_policy" "apprunner_s3_put_policy" {
   name        = "${var.project}-apprunner-s3-put"
   description = "Allow App Runner instance role to upload objects to product images bucket"
   policy      = data.aws_iam_policy_document.apprunner_s3_put_doc.json
-  depends_on  = [aws_iam_role_policy_attachment.github_actions_policy_version_mgmt_attach]
 }
 
 resource "aws_iam_role_policy_attachment" "apprunner_s3_put_attach" {

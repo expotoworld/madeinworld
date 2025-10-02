@@ -22,6 +22,7 @@
     "@types/lodash.debounce": "^4.0.9",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
     "typescript": "^5.5.4",
     "vite": "^5.3.4"
   }

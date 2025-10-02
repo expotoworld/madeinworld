@@ -161,6 +161,7 @@ resource "aws_iam_policy" "apprunner_s3_put_policy" {
   name        = "${var.project}-apprunner-s3-put"
   description = "Allow App Runner instance role to upload objects to product images bucket"
   policy      = data.aws_iam_policy_document.apprunner_s3_put_doc.json
+  depends_on  = [aws_iam_role_policy_attachment.github_actions_policy_version_mgmt_attach]
 }
 
 resource "aws_iam_role_policy_attachment" "apprunner_s3_put_attach" {
@@ -195,13 +196,13 @@ resource "aws_iam_role_policy_attachment" "github_actions_passrole_attach" {
 }
 
 # Read-only Cost Explorer permission for GitHub Actions to detect existing anomaly monitors
-# This enables the workflow step that auto-detects a DIMENSIONAL SERVICE monitor in us-east-1
-# and sets TF_VAR_ce_monitor_arn accordingly (we keep creation disabled by default).
+# and subscriptions in us-east-1.
 data "aws_iam_policy_document" "github_actions_ce_read_doc" {
   statement {
     effect  = "Allow"
     actions = [
-      "ce:GetAnomalyMonitors"
+      "ce:GetAnomalyMonitors",
+      "ce:GetAnomalySubscriptions"
     ]
     resources = ["*"]
   }
@@ -209,13 +210,44 @@ data "aws_iam_policy_document" "github_actions_ce_read_doc" {
 
 resource "aws_iam_policy" "github_actions_ce_read" {
   name        = "${var.project}-github-actions-ce-read"
-  description = "Allow GitHub Actions to read CE anomaly monitors"
+  description = "Allow GitHub Actions to read CE anomaly monitors and subscriptions"
   policy      = data.aws_iam_policy_document.github_actions_ce_read_doc.json
 }
 
 resource "aws_iam_role_policy_attachment" "github_actions_ce_read_attach" {
   role       = "GitHubActions-MadeInWorld-Role"
   policy_arn = aws_iam_policy.github_actions_ce_read.arn
+}
+
+# Allow GitHub Actions to deploy editor site to S3 bucket
+# Grants ListBucket on the bucket and Put/Delete on objects
+
+data "aws_iam_policy_document" "github_actions_editor_deploy_doc" {
+  statement {
+    effect  = "Allow"
+    actions = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.editor_site_bucket}"]
+  }
+  statement {
+    effect  = "Allow"
+    actions = [
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:PutObjectAcl"
+    ]
+    resources = ["arn:aws:s3:::${var.editor_site_bucket}/*"]
+  }
+}
+
+resource "aws_iam_policy" "github_actions_editor_deploy" {
+  name        = "${var.project}-github-actions-editor-deploy"
+  description = "Allow GitHub Actions OIDC role to sync editor site to S3"
+  policy      = data.aws_iam_policy_document.github_actions_editor_deploy_doc.json
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_editor_deploy_attach" {
+  role       = "GitHubActions-MadeInWorld-Role"
+  policy_arn = aws_iam_policy.github_actions_editor_deploy.arn
 }
 
 # Allow GitHub Actions role to manage versions of the apprunner S3 put policy

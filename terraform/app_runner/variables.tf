@@ -91,3 +91,10 @@ variable "enable_auth_ready_canary" {
   type        = bool
   default     = false
 }
+
+# S3 bucket used to host the ebook editor static site (for deploy workflow OIDC role)
+variable "editor_site_bucket" {
+  description = "S3 bucket name for the ebook editor static site"
+  type        = string
+  default     = "madeinworld-ebook-editor-site-eu-central-1"
+}

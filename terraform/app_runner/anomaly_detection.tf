@@ -18,7 +18,7 @@ locals {
 
 # Create subscription only when a monitor ARN is available
 resource "aws_ce_anomaly_subscription" "cloudwatch_alerts" {
-  count     = local.resolved_ce_monitor_arn != "" ? 1 : 0
+  count     = (var.enable_ce_anomaly_subscription && local.resolved_ce_monitor_arn != "") ? 1 : 0
   provider  = aws.us_east_1
   name      = "cloudwatch-anomaly-alerts"
   frequency = "DAILY"

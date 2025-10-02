@@ -212,7 +212,7 @@ data "aws_iam_policy_document" "github_actions_ce_read_doc" {
 
 resource "aws_iam_policy" "github_actions_ce_read" {
   name        = "${var.project}-github-actions-ce-read"
-  description = "Allow GitHub Actions to read CE anomaly monitors and subscriptions"
+  description = "Allow GitHub Actions to read CE anomaly monitors"
   policy      = data.aws_iam_policy_document.github_actions_ce_read_doc.json
 }
 

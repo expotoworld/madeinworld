@@ -98,3 +98,11 @@ variable "editor_site_bucket" {
   type        = string
   default     = "madeinworld-ebook-editor-site-eu-central-1"
 }
+
+
+# Explicit opt-in to create/analyze CE anomaly subscriptions (default off for CI)
+variable "enable_ce_anomaly_subscription" {
+  description = "Whether to manage the CE anomaly subscription in CI runs"
+  type        = bool
+  default     = false
+}

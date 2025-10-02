@@ -63,9 +63,19 @@ jobs:
           SERVICE_NAME: madeinworld-${{ matrix.service }}-dev
         run: |
           set -e
-          ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME'].ServiceArn | [0]" --output text)
+          echo "Resolving ARN for $SERVICE_NAME (prefer non-deleted, newest)"
+          for i in {1..60}; do
+            ARN=$(aws apprunner list-services \
+              --query "ServiceSummaryList[?ServiceName=='$SERVICE_NAME' && Status!='DELETED' && Status!='DELETE_IN_PROGRESS'] | sort_by(@,&CreatedAt)[-1].ServiceArn" \
+              --output text)
+            if [ -n "$ARN" ] && [ "$ARN" != "None" ]; then
+              break
+            fi
+            echo "Service not yet available; retrying (attempt $i/60)"
+            sleep 10
+          done
           if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then
-            echo "No App Runner service found for $SERVICE_NAME" >&2
+            echo "No active App Runner service found for $SERVICE_NAME" >&2
             exit 1
           fi
           echo "Service ARN: $ARN"

@@ -132,7 +132,22 @@ jobs:
         run: |
           terraform state rm 'aws_ce_anomaly_subscription.cloudwatch_alerts[0]' || true
 
-      - name: Terraform Plan
+      - name: Terraform Plan (initial)
+        run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m
+
+      - name: Terraform Apply (policy version mgmt only)
+        run: |
+          terraform apply -input=false -auto-approve -no-color -parallelism=1 -lock-timeout=5m \
+            -target=aws_iam_policy.github_actions_policy_version_mgmt \
+            -target=aws_iam_role_policy_attachment.github_actions_policy_version_mgmt_attach
+
+      - name: Reconfigure AWS credentials (refresh session)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Plan (full)
         run: terraform plan -input=false -no-color -parallelism=1 -lock-timeout=5m
 
       - name: Terraform Apply (all resources)

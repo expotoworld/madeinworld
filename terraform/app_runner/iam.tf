@@ -3,7 +3,6 @@
 # Current account
 
 # Account identity for building ARNs without creating graph cycles
-data "aws_caller_identity" "current" {}
 
 # App Runner ECR access role (assumed by App Runner to pull from ECR)
 resource "aws_iam_role" "apprunner_ecr_access_role" {

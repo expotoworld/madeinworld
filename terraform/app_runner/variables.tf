@@ -61,6 +61,35 @@ variable "secret_arn_jwt_secret" {
   }
 }
 
+# Optional per-service override for ebook-service to use a different Neon branch (e.g., production)
+variable "neon_db_host_ebook_override" {
+  description = "Override Neon DB host for ebook-service (leave empty to use global neon_db_host)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "neon_db_user_ebook_override" {
+  description = "Override Neon DB user for ebook-service (leave empty to use global neon_db_user)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "neon_db_name_ebook_override" {
+  description = "Override Neon DB name for ebook-service (leave empty to use global neon_db_name)"
+  type        = string
+  default     = ""
+}
+
+variable "secret_arn_db_password_ebook_override" {
+  description = "Override DB password secret ARN for ebook-service (leave empty to use global secret_arn_db_password)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+
 
 variable "ses_from_email" {
   description = "The verified 'From' email address for SES."

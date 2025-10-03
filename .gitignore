@@ -324,3 +324,14 @@ htmlcov/
 
 #MD file for roadmap
 /ebook_implementation.md
+
+# =============================================================================
+# CLOUD WORKERS & GO BINARIES (Ignore dev artifacts)
+# =============================================================================
+workers/edge-proxy/.wrangler/
+workers/edge-proxy/.mf/
+workers/edge-proxy/tmp/
+workers/edge-proxy/dist/
+
+# Go compiled binaries accidentally produced in repo
+/backend/auth-service/server

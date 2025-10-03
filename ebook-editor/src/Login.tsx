@@ -11,7 +11,7 @@ export default function Login({ onToken }: { onToken: (t: string) => void }) {
   const sendCode = async () => {
     setError('')
     try {
-      await axios.post(`${AUTH_BASE}/api/auth/send-verification`, { email })
+      await axios.post(`${AUTH_BASE}/api/auth/send-verification`, { email }, { headers: { 'X-Require-Existing': 'true', 'X-Require-Role': 'Author' } })
       setStep(1)
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to send code')
@@ -21,7 +21,7 @@ export default function Login({ onToken }: { onToken: (t: string) => void }) {
   const verify = async () => {
     setError('')
     try {
-      const res = await axios.post(`${AUTH_BASE}/api/auth/verify-code`, { email, code })
+      const res = await axios.post(`${AUTH_BASE}/api/auth/verify-code`, { email, code }, { headers: { 'X-Require-Existing': 'true', 'X-Require-Role': 'Author' } })
       const token: string = res.data?.token
       const role: string = res.data?.user?.role
       if (role !== 'Author') {

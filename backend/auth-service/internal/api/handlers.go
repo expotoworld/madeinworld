@@ -588,12 +588,17 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 		fmt.Printf("Failed to update last login for user %s: %v\n", user.ID, err)
 	}
 
-	// Generate JWT token
+	// Generate JWT token with role claim for downstream authorization (e.g., ebook-service)
 	emailStr := ""
 	if user.Email != nil {
 		emailStr = *user.Email
 	}
-	token, err := h.generateJWTToken(user.ID, emailStr, "")
+	roleClaim := ""
+	if id, role, _, err := h.DB.GetUserRoleStatusByEmail(ctx, req.Email); err == nil {
+		_ = id
+		roleClaim = role
+	}
+	token, err := h.generateJWTToken(user.ID, emailStr, roleClaim)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Failed to generate token",
@@ -610,11 +615,24 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 	fmt.Printf("[USER_AUTH] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n",
 		req.Email, clientIP, tokenExpiresAt.Format("2006-01-02 15:04:05"))
 
-	// Return success response
-	c.JSON(http.StatusOK, models.VerifyUserCodeResponse{
-		Token:     token,
-		ExpiresAt: tokenExpiresAt,
-		User:      *user,
+	// Return success response with role included in user payload
+	respUser := gin.H{
+		"id":          user.ID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"phone":       user.Phone,
+		"first_name":  user.FirstName,
+		"middle_name": user.MiddleName,
+		"last_name":   user.LastName,
+		"created_at":  user.CreatedAt,
+		"updated_at":  user.UpdatedAt,
+		"role":        roleClaim,
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"token":      token,
+		"expires_at": tokenExpiresAt,
+		"expiresAt":  tokenExpiresAt, // keep camelCase for consistency elsewhere
+		"user":       respUser,
 	})
 }
 

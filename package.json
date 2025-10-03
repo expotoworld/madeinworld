@@ -1,0 +1,21 @@
+{
+  "name": "madeinworld-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:stack": "concurrently --kill-others-on-fail \"cd backend/catalog-service && go run ./cmd/server/main.go\" \"cd backend/auth-service && go run ./cmd/server/main.go\" \"cd backend/order-service && go run ./cmd/server/main.go\" \"cd backend/user-service && go run ./cmd/server/main.go\" \"cd workers/edge-proxy && wrangler dev --var CATALOG_SERVICE_URL:http://localhost:8080 --var AUTH_SERVICE_URL:http://localhost:8081 --var ORDER_SERVICE_URL:http://localhost:8082 --var USER_SERVICE_URL:http://localhost:8083\" \"cd admin-panel && npm start\"",
+    "dev:ebook": "concurrently --kill-others-on-fail \"bash -lc 'cd backend/ebook-service && set -a && source .env && set +a && go run ./cmd/server'\" \"bash -lc 'cd ebook-editor && VITE_API_BASE=http://localhost:8084 VITE_AUTH_BASE=http://localhost:8081 npm run dev'\""
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^7.1.2",
+    "@mui/material": "^7.1.2",
+    "axios": "^1.10.0",
+    "react-router-dom": "^7.6.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wrangler": "^4.38.0"
+  }
+}

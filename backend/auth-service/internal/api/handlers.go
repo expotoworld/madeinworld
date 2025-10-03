@@ -336,6 +336,27 @@ func (h *Handler) UserSendVerification(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Optional stricter mode for clients like ebook-editor
+	requireExisting := strings.EqualFold(c.GetHeader("X-Require-Existing"), "true") || c.Query("require_existing") == "true"
+	requiredRole := strings.TrimSpace(c.GetHeader("X-Require-Role"))
+	if requireExisting || requiredRole != "" {
+		// Must be an existing user (and optionally with specific role)
+		if id, role, _, err := h.DB.GetUserRoleStatusByEmail(ctx, req.Email); err != nil {
+			if err == pgx.ErrNoRows {
+				c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "User not allowed", Message: "User does not exist"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to validate user", Message: err.Error()})
+			return
+		} else {
+			_ = id // not used here, but ensures retrieval succeeded
+			if requiredRole != "" && !strings.EqualFold(role, requiredRole) {
+				c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "User not allowed", Message: "User role not permitted"})
+				return
+			}
+		}
+	}
+
 	// Check rate limiting
 	maxRequests := getEnvInt("RATE_LIMIT_REQUESTS_PER_HOUR", 5)
 	rateLimited, err := h.DB.CheckUserRateLimit(ctx, clientIP, maxRequests, 1)
@@ -522,26 +543,42 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Check if user exists, if not auto-register
+	// Optional stricter mode for clients like ebook-editor
+	requireExisting := strings.EqualFold(c.GetHeader("X-Require-Existing"), "true") || c.Query("require_existing") == "true"
+	requiredRole := strings.TrimSpace(c.GetHeader("X-Require-Role"))
+
+	// Retrieve user; conditionally allow auto-registration
 	user, err := h.DB.GetUserByEmail(ctx, req.Email)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			// Auto-register new user
+			if requireExisting {
+				c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "User not allowed", Message: "User does not exist"})
+				return
+			}
+			// Auto-register only when not in strict mode
 			user, err = h.DB.CreateUserFromEmail(ctx, req.Email)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-					Error:   "Failed to create user account",
-					Message: err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create user account", Message: err.Error()})
 				return
 			}
 			fmt.Printf("[USER_AUTH] Auto-registered new user: %s\n", req.Email)
 		} else {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
-				Error:   "Failed to retrieve user",
-				Message: err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to retrieve user", Message: err.Error()})
 			return
+		}
+	}
+
+	// If a specific role is required, enforce it (no token if not matching)
+	if requiredRole != "" {
+		if id, role, _, err := h.DB.GetUserRoleStatusByEmail(ctx, req.Email); err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to validate user role", Message: err.Error()})
+			return
+		} else {
+			_ = id
+			if !strings.EqualFold(role, requiredRole) {
+				c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "User not allowed", Message: "User role not permitted"})
+				return
+			}
 		}
 	}
 

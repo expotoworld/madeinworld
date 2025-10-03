@@ -83,7 +83,7 @@ const UserListPage = () => {
   const { showToast } = useToast();
 
   // User roles and statuses
-  const userRoles = ['Customer', 'Admin', 'Manufacturer', '3PL', 'Partner'];
+  const userRoles = ['Customer', 'Admin', 'Manufacturer', '3PL', 'Partner', 'Author'];
   const userStatuses = ['active', 'deactivated'];
 
   // Fetch users data
@@ -126,21 +126,16 @@ const UserListPage = () => {
 
   useEffect(() => {
     fetchUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, rowsPerPage, orderBy, order, searchTerm, roleFilter, statusFilter]);
-
-  useEffect(() => {
     fetchAnalytics();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, rowsPerPage, orderBy, order, roleFilter, statusFilter]);
 
-  // Handle sorting
   const handleRequestSort = (property) => {
     const isAsc = orderBy === property && order === 'asc';
     setOrder(isAsc ? 'desc' : 'asc');
     setOrderBy(property);
   };
 
-  // Handle pagination
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
   };
@@ -150,24 +145,18 @@ const UserListPage = () => {
     setPage(0);
   };
 
-  // Handle search
   const handleSearchChange = (event) => {
     setSearchTerm(event.target.value);
-    setPage(0);
   };
 
-  // Handle filter changes
   const handleRoleFilterChange = (event) => {
     setRoleFilter(event.target.value);
-    setPage(0);
   };
 
   const handleStatusFilterChange = (event) => {
     setStatusFilter(event.target.value);
-    setPage(0);
   };
 
-  // Handle menu actions
   const handleMenuClick = (event, user) => {
     setAnchorEl(event.currentTarget);
     setSelectedUser(user);
@@ -178,89 +167,40 @@ const UserListPage = () => {
     setSelectedUser(null);
   };
 
-  const handleEditUser = () => {
-    // Store user data before closing menu (which sets selectedUser to null)
-    const userToEdit = selectedUser;
-    handleMenuClose();
+  const [editFormData, setEditFormData] = useState({});
 
-    // Populate form with selected user data
-    setFormData({
-      user_id: userToEdit.id, // Store the user ID for later use (backend uses 'id' field)
-      username: userToEdit.username || '',
-      email: userToEdit.email || '',
-      phone: userToEdit.phone || '',
-      first_name: userToEdit.first_name || '',
-      middle_name: userToEdit.middle_name || '',
-      last_name: userToEdit.last_name || '',
-      role: userToEdit.role || 'Customer',
-      status: userToEdit.status || 'active'
-    });
-    setFormErrors({});
+  const openEditDialog = (user) => {
+    setEditFormData({ ...user });
     setEditDialogOpen(true);
   };
 
-  const handleDeleteUser = () => {
-    // Store user ID before closing menu (which sets selectedUser to null)
-    setUserToDelete(selectedUser.id); // Store user ID for deletion (backend uses 'id' field)
-    handleMenuClose();
-    setDeleteDialogOpen(true);
-  };
-
-  // Form handling functions
-  const resetForm = () => {
-    setFormData({
-      username: '',
-      email: '',
-      phone: '',
-      first_name: '',
-      middle_name: '',
-      last_name: '',
-      role: 'Customer',
-      status: 'active'
-    });
-    setFormErrors({});
-  };
-
-  const handleCreateUser = () => {
-    resetForm();
-    setCreateDialogOpen(true);
+  const handleEditFormChange = (field, value) => {
+    setEditFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleFormChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (formErrors[field]) {
-      setFormErrors(prev => ({ ...prev, [field]: '' }));
-    }
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const validateForm = (isEdit = false) => {
+  const validateForm = () => {
     const errors = {};
-
-    if (!formData.username.trim()) errors.username = 'Username is required';
-    if (!formData.email.trim()) errors.email = 'Email is required';
-
-
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formData.email && !emailRegex.test(formData.email)) {
-      errors.email = 'Please enter a valid email address';
-    }
-
+    if (!formData.username || formData.username.length < 3) errors.username = 'Username must be at least 3 characters';
+    if (!formData.email) errors.email = 'Email is required';
+    if (!formData.role) errors.role = 'Role is required';
+    if (!formData.status) errors.status = 'Status is required';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // CRUD operations
-  const handleSubmitCreate = async () => {
+  const handleCreateUser = async () => {
     if (!validateForm()) return;
-
     setSubmitting(true);
     try {
       await userService.createUser(formData);
       showToast('User created successfully', 'success');
       setCreateDialogOpen(false);
-      resetForm();
-      fetchUsers(); // Refresh the list
+      setFormData({ username: '', email: '', first_name: '', middle_name: '', last_name: '', role: 'Customer', status: 'active' });
+      fetchUsers();
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to create user', 'error');
     } finally {
@@ -268,37 +208,24 @@ const UserListPage = () => {
     }
   };
 
-  const handleSubmitEdit = async () => {
-    if (!validateForm(true)) return;
-
+  const handleUpdateUser = async () => {
+    if (!editFormData.id) return;
     setSubmitting(true);
     try {
-      console.log('Form data:', formData);
-      console.log('User ID:', formData.user_id);
-
-      // Transform frontend form data to backend expected format
-      const updateData = {};
-
-      // Send name parts individually (backend composes full_name server-side)
-      if (formData.first_name !== undefined) updateData.first_name = formData.first_name;
-      if (formData.middle_name !== undefined) updateData.middle_name = formData.middle_name;
-      if (formData.last_name !== undefined) updateData.last_name = formData.last_name;
-
-      if (formData.email !== undefined) updateData.email = formData.email;
-      if (formData.phone !== undefined) updateData.phone = formData.phone;
-      if (formData.role !== undefined) updateData.role = formData.role;
-      if (formData.status !== undefined) updateData.status = formData.status;
-
-      await userService.updateUser(formData.user_id, updateData);
+      await userService.updateUser(editFormData.id, { role: editFormData.role, status: editFormData.status, email: editFormData.email, phone: editFormData.phone });
       showToast('User updated successfully', 'success');
       setEditDialogOpen(false);
-      resetForm();
-      fetchUsers(); // Refresh the list
+      fetchUsers();
     } catch (error) {
       showToast(error.response?.data?.message || 'Failed to update user', 'error');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDeleteUser = (userId) => {
+    setUserToDelete(userId);
+    setDeleteDialogOpen(true);
   };
 
   const handleConfirmDelete = async () => {
@@ -325,148 +252,41 @@ const UserListPage = () => {
       'Manufacturer': 'primary',
       '3PL': 'secondary',
       'Partner': 'success',
+      'Author': 'info',
     };
     return colors[role] || 'default';
   };
 
-  // Get status chip color
   const getStatusChipColor = (status) => {
     const colors = {
       'active': 'success',
-      'deactivated': 'error',
+      'deactivated': 'default',
     };
     return colors[status] || 'default';
   };
 
-  // Format date
   const formatDate = (dateString) => {
-    if (!dateString) return 'Never';
-    const d = new Date(dateString);
-    return d.toLocaleString();
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
   };
 
-  // Table columns configuration
-  const columns = [
-    { id: 'username', label: 'Username', sortable: true },
-    { id: 'full_name', label: 'Name', sortable: true },
-    { id: 'email', label: 'Email', sortable: true },
-    { id: 'phone', label: 'Phone Number', sortable: true },
-    { id: 'role', label: 'Role', sortable: true },
-    { id: 'status', label: 'Status', sortable: false },
-    { id: 'created_at', label: 'Joined', sortable: true },
-    { id: 'last_login', label: 'Last Login', sortable: true },
-    { id: 'order_count', label: 'Orders', sortable: true },
-    { id: 'actions', label: 'Actions', sortable: false },
-  ];
-
-  if (loading && users.length === 0) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Typography>Loading users...</Typography>
-      </Box>
-    );
-  }
-
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Page Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          User Management
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Manage user accounts, roles, and permissions
-        </Typography>
-      </Box>
+    <Box p={2}>
+      <Typography variant="h5" gutterBottom>
+        Users
+      </Typography>
 
-      {/* Analytics Cards */}
-      {analytics && (
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <PersonIcon color="primary" sx={{ mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6">{analytics.total_users}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Users
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <TrendingUpIcon color="success" sx={{ mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6">{analytics.active_users}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Active Users
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <CalendarIcon color="info" sx={{ mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6">{analytics.new_users_today}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      New Today
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <CalendarIcon color="warning" sx={{ mr: 2 }} />
-                  <Box>
-                    <Typography variant="h6">{analytics.new_users_this_week}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      New This Week
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
-
-      {/* Filters and Search */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Users</Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleCreateUser}
-          >
-            Create User
-          </Button>
-        </Box>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
+      {/* Filters */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={3}>
             <TextField
-              fullWidth
-              placeholder="Search users..."
+              label="Search"
               value={searchTerm}
               onChange={handleSearchChange}
-              InputProps={{
-                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-              }}
+              fullWidth
+              InputProps={{ endAdornment: <SearchIcon /> }}
             />
           </Grid>
           <Grid item xs={12} md={3}>
@@ -503,77 +323,45 @@ const UserListPage = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={2}>
-            <Button
-              fullWidth
-              variant="outlined"
-              onClick={() => {
-                setSearchTerm('');
-                setRoleFilter('');
-                setStatusFilter('');
-              }}
-            >
-              Clear Filters
-            </Button>
-          </Grid>
         </Grid>
       </Paper>
 
-      {/* Error Alert */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Users Table */}
+      {/* User list */}
       <Paper>
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table sx={{ minWidth: 1000 }}>
+        <TableContainer>
+          <Table>
             <TableHead>
               <TableRow>
-                {columns.map((column) => (
-                  <TableCell key={column.id}>
-                    {column.sortable ? (
-                      <TableSortLabel
-                        active={orderBy === column.id}
-                        direction={orderBy === column.id ? order : 'asc'}
-                        onClick={() => handleRequestSort(column.id)}
-                      >
-                        {column.label}
-                      </TableSortLabel>
-                    ) : (
-                      column.label
-                    )}
-                  </TableCell>
-                ))}
+                <TableCell>User</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Phone</TableCell>
+                <TableCell>Role</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Created</TableCell>
+                <TableCell>Last Login</TableCell>
+                <TableCell>Orders</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {users.map((user) => (
+              {users.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((user) => (
                 <TableRow key={user.id} hover>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PersonIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                      {user.username}
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <PersonIcon fontSize="small" />
+                      <Typography>{user.full_name || user.username}</Typography>
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PersonIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                      {user.full_name}
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <EmailIcon fontSize="small" />
+                      <Typography>{user.email || '-'}</Typography>
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                      {user.email || 'N/A'}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <PhoneIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                      {user.phone || 'N/A'}
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <PhoneIcon fontSize="small" />
+                      <Typography>{user.phone || '-'}</Typography>
                     </Box>
                   </TableCell>
                   <TableCell>
@@ -614,94 +402,18 @@ const UserListPage = () => {
             </TableBody>
           </Table>
         </TableContainer>
-
-        {/* Pagination */}
-        <TablePagination
-          rowsPerPageOptions={[10, 20, 50, 100]}
-          component="div"
-          count={totalUsers}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
       </Paper>
-
-      {/* Action Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-      >
-        <MenuItem onClick={handleEditUser}>
-          <EditIcon sx={{ mr: 1 }} />
-          Edit User
-        </MenuItem>
-        <MenuItem onClick={handleDeleteUser}>
-          <DeleteIcon sx={{ mr: 1 }} />
-          Delete User
-        </MenuItem>
-      </Menu>
 
       {/* Create User Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New User</DialogTitle>
+        <DialogTitle>Create User</DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Username"
-                value={formData.username}
-                onChange={(e) => handleFormChange('username', e.target.value)}
-                error={!!formErrors.username}
-                helperText={formErrors.username}
-                required
-              />
+              <TextField label="Username" fullWidth value={formData.username} onChange={(e) => handleFormChange('username', e.target.value)} error={!!formErrors.username} helperText={formErrors.username} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleFormChange('email', e.target.value)}
-                error={!!formErrors.email}
-                helperText={formErrors.email}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Phone"
-                value={formData.phone || ''}
-                onChange={(e) => handleFormChange('phone', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="First Name"
-                value={formData.first_name}
-                onChange={(e) => handleFormChange('first_name', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Middle Name"
-                value={formData.middle_name}
-                onChange={(e) => handleFormChange('middle_name', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Last Name"
-                value={formData.last_name}
-                onChange={(e) => handleFormChange('last_name', e.target.value)}
-              />
+              <TextField label="Email" fullWidth value={formData.email} onChange={(e) => handleFormChange('email', e.target.value)} error={!!formErrors.email} helperText={formErrors.email} />
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
@@ -738,16 +450,8 @@ const UserListPage = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmitCreate}
-            disabled={submitting}
-          >
-            {submitting ? 'Creating...' : 'Create User'}
-          </Button>
+          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateUser} disabled={submitting}>Create</Button>
         </DialogActions>
       </Dialog>
 
@@ -755,70 +459,17 @@ const UserListPage = () => {
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Edit User</DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Username"
-                value={formData.username}
-                onChange={(e) => handleFormChange('username', e.target.value)}
-                error={!!formErrors.username}
-                helperText={formErrors.username}
-                required
-              />
+              <TextField label="Email" fullWidth value={editFormData.email || ''} onChange={(e) => handleEditFormChange('email', e.target.value)} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleFormChange('email', e.target.value)}
-                error={!!formErrors.email}
-                helperText={formErrors.email}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Phone"
-                value={formData.phone || ''}
-                onChange={(e) => handleFormChange('phone', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="First Name"
-                value={formData.first_name}
-                onChange={(e) => handleFormChange('first_name', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Middle Name"
-                value={formData.middle_name}
-                onChange={(e) => handleFormChange('middle_name', e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Last Name"
-                value={formData.last_name}
-                onChange={(e) => handleFormChange('last_name', e.target.value)}
-              />
+              <TextField label="Phone" fullWidth value={editFormData.phone || ''} onChange={(e) => handleEditFormChange('phone', e.target.value)} />
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Role</InputLabel>
-                <Select
-                  value={formData.role}
-                  label="Role"
-                  onChange={(e) => handleFormChange('role', e.target.value)}
-                >
+                <Select value={editFormData.role || ''} label="Role" onChange={(e) => handleEditFormChange('role', e.target.value)}>
                   {userRoles.map((role) => (
                     <MenuItem key={role} value={role}>
                       {role}
@@ -830,11 +481,7 @@ const UserListPage = () => {
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
-                <Select
-                  value={formData.status}
-                  label="Status"
-                  onChange={(e) => handleFormChange('status', e.target.value)}
-                >
+                <Select value={editFormData.status || ''} label="Status" onChange={(e) => handleEditFormChange('status', e.target.value)}>
                   {userStatuses.map((status) => (
                     <MenuItem key={status} value={status}>
                       {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -846,49 +493,31 @@ const UserListPage = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditDialogOpen(false)} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmitEdit}
-            disabled={submitting}
-          >
-            {submitting ? 'Updating...' : 'Update User'}
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleUpdateUser} disabled={submitting}>Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          Are you sure you want to delete this user? This action cannot be undone.
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={handleConfirmDelete} disabled={submitting}>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Delete User Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => { setDeleteDialogOpen(false); setUserToDelete(null); }}>
-        <DialogTitle>Delete User</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to permanently delete this user? This action cannot be undone and will remove all associated data.
-          </Typography>
-          {selectedUser && (
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-              <Typography variant="subtitle2">User to be deleted:</Typography>
-              <Typography><strong>Name:</strong> {selectedUser.full_name}</Typography>
-              <Typography><strong>Email:</strong> {selectedUser.email}</Typography>
-              <Typography><strong>Role:</strong> {selectedUser.role}</Typography>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setDeleteDialogOpen(false); setUserToDelete(null); }} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleConfirmDelete}
-            disabled={submitting}
-          >
-            {submitting ? 'Deleting...' : 'Delete User'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Floating Action Button to Create User */}
+      <Box position="fixed" bottom={24} right={24}>
+        <Button variant="contained" startIcon={<Add as={AddIcon} />} onClick={() => setCreateDialogOpen(true)}>
+          Create User
+        </Button>
+      </Box>
     </Box>
   );
 };

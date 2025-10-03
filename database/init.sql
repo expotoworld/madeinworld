@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create ENUM types
-CREATE TYPE user_role AS ENUM ('Customer', 'Admin', 'Manufacturer', '3PL', 'Partner');
+CREATE TYPE user_role AS ENUM ('Customer', 'Admin', 'Manufacturer', '3PL', 'Partner', 'Author');
 CREATE TYPE store_type AS ENUM ('Retail', 'Unmanned', 'Warehouse');
 CREATE TYPE store_type_association AS ENUM ('Retail', 'Unmanned', 'All');
 CREATE TYPE stock_request_status AS ENUM ('Pending', 'Confirmed by Manufacturer', 'Ready for Pickup', 'In Transit', 'Delivered', 'Verified', 'Cancelled');

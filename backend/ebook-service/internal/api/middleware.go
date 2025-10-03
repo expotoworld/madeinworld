@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -19,9 +20,15 @@ func JWTOptionalMiddleware() gin.HandlerFunc {
 				return []byte(secret), nil
 			}); err == nil && token != nil && token.Valid {
 				if claims, ok := token.Claims.(jwt.MapClaims); ok {
-					if v, ok := claims["user_id"]; ok { c.Set("user_id", v) }
-					if v, ok := claims["email"]; ok { c.Set("email", v) }
-					if v, ok := claims["role"].(string); ok { c.Set("role", v) }
+					if v, ok := claims["user_id"]; ok {
+						c.Set("user_id", v)
+					}
+					if v, ok := claims["email"]; ok {
+						c.Set("email", v)
+					}
+					if v, ok := claims["role"].(string); ok {
+						c.Set("role", v)
+					}
 				}
 			}
 		}
@@ -36,7 +43,8 @@ func JWTMiddleware() gin.HandlerFunc {
 		auth := c.GetHeader("Authorization")
 		if len(auth) <= 7 || auth[:7] != "Bearer " || secret == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid token"})
-			c.Abort(); return
+			c.Abort()
+			return
 		}
 		tokStr := auth[7:]
 		token, err := jwt.Parse(tokStr, func(token *jwt.Token) (interface{}, error) {
@@ -44,12 +52,19 @@ func JWTMiddleware() gin.HandlerFunc {
 		})
 		if err != nil || token == nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-			c.Abort(); return
+			c.Abort()
+			return
 		}
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			if v, ok := claims["user_id"]; ok { c.Set("user_id", v) }
-			if v, ok := claims["email"]; ok { c.Set("email", v) }
-			if v, ok := claims["role"].(string); ok { c.Set("role", v) }
+			if v, ok := claims["user_id"]; ok {
+				c.Set("user_id", v)
+			}
+			if v, ok := claims["email"]; ok {
+				c.Set("email", v)
+			}
+			if v, ok := claims["role"].(string); ok {
+				c.Set("role", v)
+			}
 		}
 		c.Next()
 	}
@@ -60,20 +75,28 @@ func RequireJWT() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := c.Get("user_id"); !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
-			c.Abort(); return
+			c.Abort()
+			return
 		}
 		c.Next()
 	}
 }
 
-// RequireAuthor ensures role=Author
+// RequireAuthor ensures role=Author (case-insensitive)
 func RequireAuthor() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if v, ok := c.Get("role"); !ok || v.(string) != "Author" {
+		v, ok := c.Get("role")
+		if !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "author role required"})
-			c.Abort(); return
+			c.Abort()
+			return
+		}
+		roleStr, _ := v.(string)
+		if !strings.EqualFold(roleStr, "Author") {
+			c.JSON(http.StatusForbidden, gin.H{"error": "author role required"})
+			c.Abort()
+			return
 		}
 		c.Next()
 	}
 }
-

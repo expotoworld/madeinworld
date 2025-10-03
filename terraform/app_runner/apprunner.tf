@@ -18,6 +18,16 @@ locals {
   neon_pooler_host_guess = format("%s-pooler.%s", local.neon_host_parts[0], join(".", slice(local.neon_host_parts, 1, length(local.neon_host_parts))))
   neon_effective_db_host = can(regex("-pooler\\.", var.neon_db_host)) ? var.neon_db_host : local.neon_pooler_host_guess
 
+  # Per-service (ebook) effective host: if override provided, ensure pooler host; otherwise fallback to global
+  neon_effective_db_host_ebook = length(trimspace(var.neon_db_host_ebook_override)) > 0 ? (
+    can(regex("-pooler\\.", var.neon_db_host_ebook_override)) ? var.neon_db_host_ebook_override :
+    format(
+      "%s-pooler.%s",
+      split(".", var.neon_db_host_ebook_override)[0],
+      join(".", slice(split(".", var.neon_db_host_ebook_override), 1, length(split(".", var.neon_db_host_ebook_override))))
+    )
+  ) : local.neon_effective_db_host
+
   services = {
     auth-service    = "8081"
     catalog-service = "8080"
@@ -77,10 +87,10 @@ resource "aws_apprunner_service" "main_services" {
         runtime_environment_variables = merge({
           PORT               = each.value
           GIN_MODE           = "release"
-          DB_HOST            = local.neon_effective_db_host
+          DB_HOST            = each.key == "ebook-service" ? local.neon_effective_db_host_ebook : local.neon_effective_db_host
           DB_PORT            = "5432"
-          DB_USER            = var.neon_db_user
-          DB_NAME            = var.neon_db_name
+          DB_USER            = each.key == "ebook-service" && length(trimspace(var.neon_db_user_ebook_override)) > 0 ? var.neon_db_user_ebook_override : var.neon_db_user
+          DB_NAME            = each.key == "ebook-service" && length(trimspace(var.neon_db_name_ebook_override)) > 0 ? var.neon_db_name_ebook_override : var.neon_db_name
           DB_SSLMODE         = "require"
           SES_FROM_EMAIL     = var.ses_from_email
           AWS_DEFAULT_REGION = var.aws_region
@@ -94,7 +104,9 @@ resource "aws_apprunner_service" "main_services" {
         } : {})
         runtime_environment_secrets = merge(
           {},
-          length(trimspace(var.secret_arn_db_password)) > 0 ? { DB_PASSWORD = var.secret_arn_db_password } : {},
+          (each.key == "ebook-service" && length(trimspace(var.secret_arn_db_password_ebook_override)) > 0)
+            ? { DB_PASSWORD = var.secret_arn_db_password_ebook_override }
+            : (length(trimspace(var.secret_arn_db_password)) > 0 ? { DB_PASSWORD = var.secret_arn_db_password } : {}),
           length(trimspace(var.secret_arn_jwt_secret)) > 0 ? { JWT_SECRET = var.secret_arn_jwt_secret } : {}
         )
       }

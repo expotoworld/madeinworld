@@ -284,9 +284,26 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Calculate token expiration
-	expirationHours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
-	tokenExpiresAt := time.Now().Add(time.Duration(expirationHours) * time.Hour)
+	// Calculate token expiration (minutes preferred)
+	expirationMinutes := getEnvInt("JWT_EXPIRATION_MINUTES", 30)
+	if expirationMinutes <= 0 {
+		hours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
+		expirationMinutes = hours * 60
+	}
+	tokenExpiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+
+	// Generate and persist refresh token (role-agnostic)
+	plainRefresh, err := generateRefreshTokenString(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
+		return
+	}
+	refreshHash := hashRefreshTokenString(plainRefresh)
+	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
+	if _, err := h.DB.CreateRefreshToken(ctx, userID, refreshHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+		return
+	}
 
 	// Create admin user response
 	adminUser := models.AdminUser{
@@ -299,11 +316,14 @@ func (h *Handler) AdminVerifyCode(c *gin.Context) {
 	fmt.Printf("[ADMIN_AUTH] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n",
 		req.Email, clientIP, tokenExpiresAt.Format("2006-01-02 15:04:05"))
 
-	// Return success response
-	c.JSON(http.StatusOK, models.VerifyCodeResponse{
-		Token:     token,
-		ExpiresAt: tokenExpiresAt,
-		User:      adminUser,
+	// Return success response (include refresh token fields)
+	c.JSON(http.StatusOK, gin.H{
+		"token":              token,
+		"expires_at":         tokenExpiresAt,
+		"expiresAt":          tokenExpiresAt,
+		"refresh_token":      plainRefresh,
+		"refresh_expires_at": refreshExpiresAt,
+		"user":               adminUser,
 	})
 }
 

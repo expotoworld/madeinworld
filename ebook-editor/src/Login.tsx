@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import axios from 'axios'
+import { AUTH_BASE, setAccessToken, setRefreshToken } from './auth'
 
 export default function Login({ onToken }: { onToken: (t: string) => void }) {
   const [email, setEmail] = useState('')
@@ -24,10 +25,14 @@ export default function Login({ onToken }: { onToken: (t: string) => void }) {
       const res = await axios.post(`${AUTH_BASE}/api/auth/verify-code`, { email, code }, { headers: { 'X-Require-Existing': 'true', 'X-Require-Role': 'Author' } })
       const token: string = res.data?.token
       const role: string = res.data?.user?.role
+      const refreshToken: string | undefined = res.data?.refresh_token
+      const refreshExpiresAt: string | undefined = res.data?.refresh_expires_at
       if (role !== 'Author') {
         setError('This interface is restricted to Author users')
         return
       }
+      if (token) setAccessToken(token, res.data?.expires_at)
+      if (refreshToken) setRefreshToken(refreshToken, refreshExpiresAt)
       onToken(token)
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Verification failed')

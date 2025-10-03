@@ -90,9 +90,11 @@ type VerifyUserCodeRequest struct {
 
 // VerifyUserCodeResponse represents the response after successful user verification
 type VerifyUserCodeResponse struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	User      User      `json:"user"`
+	Token            string    `json:"token"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	RefreshToken     string    `json:"refresh_token"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
+	User             User      `json:"user"`
 }
 
 // UserPhoneVerificationCode represents a phone verification code for user authentication

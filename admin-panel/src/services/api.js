@@ -8,41 +8,109 @@ export const CATALOG_BASE = `${API_BASE}/api/v1`;
 // Route manufacturer endpoints through the same gateway mount as admin -> order-service
 export const MANUFACTURER_BASE = `${API_BASE}/api/admin/manufacturer`;
 
+// Token storage helpers
+const TOKEN_KEY = 'admin_token';
+const REFRESH_KEY = 'admin_refresh_token';
+
+function getAccessToken() {
+  const raw = localStorage.getItem(TOKEN_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw)?.token || null; } catch { return null; }
+}
+function setAccessToken(token, expiresAt) {
+  localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt }));
+}
+function getRefreshToken() {
+  const raw = localStorage.getItem(REFRESH_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw)?.refresh_token || null; } catch { return null; }
+}
+function setRefreshToken(refresh_token, refresh_expires_at) {
+  localStorage.setItem(REFRESH_KEY, JSON.stringify({ refresh_token, refresh_expires_at }));
+}
+
+let isRefreshing = false;
+let pendingRequests = [];
+
+async function performRefresh() {
+  if (isRefreshing) {
+    return new Promise((resolve, reject) => pendingRequests.push({ resolve, reject }));
+  }
+  isRefreshing = true;
+  try {
+    const rt = getRefreshToken();
+    if (!rt) throw new Error('No refresh token');
+    const resp = await axios.post(`${AUTH_BASE}/token/refresh`, { refresh_token: rt });
+    const newToken = resp.data?.token;
+    const newTokenExp = resp.data?.expires_at;
+    const newRefresh = resp.data?.refresh_token;
+    const newRefreshExp = resp.data?.refresh_expires_at;
+    if (!newToken || !newRefresh) throw new Error('Invalid refresh response');
+    setAccessToken(newToken, newTokenExp);
+    setRefreshToken(newRefresh, newRefreshExp);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    pendingRequests.forEach(p => p.resolve(newToken));
+    pendingRequests = [];
+    return newToken;
+  } catch (e) {
+    pendingRequests.forEach(p => p.reject(e));
+    pendingRequests = [];
+    // Clear storage on refresh failure
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem('admin_user');
+    throw e;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 // Create axios instance with base configuration (Catalog API v1)
 const api = axios.create({
   baseURL: CATALOG_BASE,
   timeout: 10000, // 10 seconds timeout
-  headers: {
-    'Content-Type': 'application/json'
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
+// Attach token on requests (both api instance and global axios)
+function attachRequestInterceptor(instance) {
+  instance.interceptors.request.use(
+    (config) => {
+      const tok = getAccessToken();
+      if (tok) config.headers.Authorization = `Bearer ${tok}`;
+      return config;
+    },
+    (error) => Promise.reject(error)
+  );
+}
+attachRequestInterceptor(api);
+attachRequestInterceptor(axios);
 
-// Request interceptor for logging and auth
-api.interceptors.request.use(
-  (config) => {
-    // request log suppressed (was verbose in dev)
-
-    // Add authorization header if token exists
-    const savedToken = localStorage.getItem('admin_token');
-    if (savedToken) {
-      try {
-        const tokenData = JSON.parse(savedToken);
-        if (tokenData.token) {
-          config.headers.Authorization = `Bearer ${tokenData.token}`;
+// 401 handler with silent refresh (once) then retry
+function attachResponseInterceptor(instance) {
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config;
+      if (error.response?.status === 401 && !originalRequest?._retry) {
+        originalRequest._retry = true;
+        try {
+          const newTok = await performRefresh();
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers['Authorization'] = `Bearer ${newTok}`;
+          return instance(originalRequest);
+        } catch (e) {
+          // Redirect to login on failure
+          if (window.location.hash !== '#/login') window.location.hash = '#/login';
+          return Promise.reject(error);
         }
-      } catch (error) {
-        console.error('Error parsing stored token:', error);
       }
+      return Promise.reject(error);
     }
-
-    return config;
-  },
-  (error) => {
-    console.error('Request error:', error);
-    return Promise.reject(error);
-  }
-);
+  );
+}
+attachResponseInterceptor(api);
+attachResponseInterceptor(axios);
 
 // Helper function to get auth headers
 const getAuthHeaders = () => {

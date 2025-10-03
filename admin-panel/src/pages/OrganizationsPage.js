@@ -5,7 +5,7 @@ import {
   DialogContent, DialogActions, TextField, IconButton, Tooltip, Stack, FormHelperText,
   Autocomplete, CircularProgress, Checkbox, Collapse
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, People as PeopleIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, People as PeopleIcon } from '@mui/icons-material';
 import { orgService, userService } from '../services/api';
 
 const orgTypeOptions = [
@@ -66,7 +66,7 @@ const OrganizationsPage = () => {
 
 
   // Inline options loader (for inline editor below the table)
-  const loadMoreInline = async (org) => {
+  const loadMoreInline = useCallback(async (org) => {
     const role = mapOrgTypeToUserRole(org.org_type);
     if (!role) return;
     try {
@@ -76,14 +76,14 @@ const OrganizationsPage = () => {
       setInlineUserOptions(opts);
     } catch (e) { console.error(e); setInlineUserOptions([]); }
     finally { setInlineLoadingOptions(false); }
-  };
+  }, [inlineSearch]);
 
   useEffect(() => {
     if (!expandedOrgId) return;
     const currentOrg = (orgs || []).find(x => x.org_id === expandedOrgId);
     if (!currentOrg) return;
     loadMoreInline(currentOrg);
-  }, [expandedOrgId, inlineSearch]);
+  }, [expandedOrgId, inlineSearch, loadMoreInline, orgs]);
 
 
   const load = useCallback(async () => {

@@ -21,6 +21,7 @@ class AuthProvider extends ChangeNotifier {
 
   // Storage keys
   static const String _tokenKey = 'auth_token';
+  static const String _refreshTokenKey = 'auth_refresh_token';
   static const String _userKey = 'auth_user';
 
   // Auth service instance
@@ -63,21 +64,24 @@ class AuthProvider extends ChangeNotifier {
     _updateState(const AuthState.loading());
 
     try {
-      // Check if we have a stored token
-      final storedToken = await _secureStorage.read(key: _tokenKey);
+      // Check if we have a stored refresh token
+      final storedRefresh = await _secureStorage.read(key: _refreshTokenKey);
 
-      if (storedToken == null) {
-        debugPrint('AuthProvider: No stored token found');
+      if (storedRefresh == null) {
+        debugPrint('AuthProvider: No stored refresh token found');
         _updateState(const AuthState.unauthenticated());
         return;
       }
 
-      debugPrint('AuthProvider: Found stored token, refreshing/validating...');
+      debugPrint('AuthProvider: Found stored refresh token, refreshing access token...');
 
-      // Prefer refresh which both validates and renews the token
-      final refreshedToken = await _authService.refreshToken(storedToken);
-      // Persist the refreshed token immediately
+      // Use refresh token to obtain new access and refresh tokens
+      final refreshed = await _authService.refreshWithRefreshToken(storedRefresh);
+      final refreshedToken = refreshed['token']!;
+      final newRefresh = refreshed['refresh_token']!;
+      // Persist the refreshed tokens immediately
       await _secureStorage.write(key: _tokenKey, value: refreshedToken);
+      await _secureStorage.write(key: _refreshTokenKey, value: newRefresh);
 
       // Get stored user data
       final storedUserJson = await _secureStorage.read(key: _userKey);
@@ -138,7 +142,7 @@ class AuthProvider extends ChangeNotifier {
 
       // success: clear attempts and store auth
       _verifyAttempts = 0;
-      await _storeAuthData(response.token, response.user);
+      await _storeAuthData(response.token, response.user, refreshToken: response.refreshToken);
 
       debugPrint('AuthProvider: Email verification successful for user: ${response.user.email}');
 
@@ -192,7 +196,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final response = await _authService.verifyPhoneCode(effectivePhone, code);
       _verifyAttempts = 0;
-      await _storeAuthData(response.token, response.user);
+      await _storeAuthData(response.token, response.user, refreshToken: response.refreshToken);
       debugPrint('AuthProvider: Phone verification successful for user: ${response.user.phone ?? ''}');
       _updateState(AuthState.authenticated(user: response.user, token: response.token));
       _scheduleTokenRefresh(response.token);
@@ -312,9 +316,12 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Store authentication data securely
-  Future<void> _storeAuthData(String token, User user) async {
+  Future<void> _storeAuthData(String token, User user, {String? refreshToken}) async {
     try {
       await _secureStorage.write(key: _tokenKey, value: token);
+      if (refreshToken != null) {
+        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+      }
       await _secureStorage.write(key: _userKey, value: json.encode(user.toJson()));
       debugPrint('AuthProvider: Authentication data stored successfully');
     } catch (e) {
@@ -328,6 +335,7 @@ class AuthProvider extends ChangeNotifier {
     _cancelScheduledRefresh();
     try {
       await _secureStorage.delete(key: _tokenKey);
+      await _secureStorage.delete(key: _refreshTokenKey);
       await _secureStorage.delete(key: _userKey);
       debugPrint('AuthProvider: Stored authentication data cleared');
     } catch (e) {
@@ -379,10 +387,16 @@ class AuthProvider extends ChangeNotifier {
     }
     _refreshTimer = Timer(delay, () async {
       try {
-        final currentToken = _state.token ?? await _secureStorage.read(key: _tokenKey);
-        if (currentToken == null) return;
-        final newToken = await _authService.refreshToken(currentToken);
+        final storedRefresh = await _secureStorage.read(key: _refreshTokenKey);
+        if (storedRefresh == null) {
+          _updateState(const AuthState.unauthenticated());
+          return;
+        }
+        final refreshed = await _authService.refreshWithRefreshToken(storedRefresh);
+        final newToken = refreshed['token']!;
+        final newRefresh = refreshed['refresh_token']!;
         await _secureStorage.write(key: _tokenKey, value: newToken);
+        await _secureStorage.write(key: _refreshTokenKey, value: newRefresh);
         if (_state.user != null) {
           _updateState(AuthState.authenticated(user: _state.user!, token: newToken));
         } else {

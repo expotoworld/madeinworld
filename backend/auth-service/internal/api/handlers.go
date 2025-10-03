@@ -2,6 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -35,7 +39,31 @@ func NewHandler(database *db.Database, email *services.EmailService, sms *servic
 }
 
 // Health endpoint for health checks (readiness)
+
+// --- Refresh token helpers ---
+func generateRefreshTokenString(n int) (string, error) {
+	if n <= 0 {
+		n = 32
+	}
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+func hashRefreshTokenString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func refreshTokenTTL() time.Duration {
+	days := getEnvInt("REFRESH_TOKEN_TTL_DAYS", 30)
+	return time.Duration(days) * 24 * time.Hour
+}
+
 func (h *Handler) Health(c *gin.Context) {
+
 	// If DB is not initialized yet, report not ready without panicking
 	if h.DB == nil {
 		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse{
@@ -88,11 +116,16 @@ func (h *Handler) generateJWTToken(userID string, email string, role string) (st
 		return "", fmt.Errorf("JWT secret not configured")
 	}
 
-	// Get token expiration time (default 24 hours)
-	expirationHours := 24
-	if expStr := os.Getenv("JWT_EXPIRATION_HOURS"); expStr != "" {
-		if exp, err := strconv.Atoi(expStr); err == nil {
-			expirationHours = exp
+	// Get access token expiration: default 30 minutes.
+	// Prefer JWT_EXPIRATION_MINUTES; fallback to JWT_EXPIRATION_HOURS for backward compatibility.
+	expirationMinutes := 30
+	if expMinStr := os.Getenv("JWT_EXPIRATION_MINUTES"); expMinStr != "" {
+		if exp, err := strconv.Atoi(expMinStr); err == nil {
+			expirationMinutes = exp
+		}
+	} else if expHrStr := os.Getenv("JWT_EXPIRATION_HOURS"); expHrStr != "" {
+		if exp, err := strconv.Atoi(expHrStr); err == nil {
+			expirationMinutes = exp * 60
 		}
 	}
 
@@ -100,7 +133,7 @@ func (h *Handler) generateJWTToken(userID string, email string, role string) (st
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"email":   email,
-		"exp":     time.Now().Add(time.Hour * time.Duration(expirationHours)).Unix(),
+		"exp":     time.Now().Add(time.Minute * time.Duration(expirationMinutes)).Unix(),
 		"iat":     time.Now().Unix(),
 	}
 	if role != "" {
@@ -162,6 +195,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 	// Parse existing token
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
+
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "Server not configured",
 			Message: "JWT secret missing",
@@ -220,6 +254,85 @@ func (h *Handler) Refresh(c *gin.Context) {
 		"token":      newToken,
 		"expires_at": expiresAt,
 		"expiresAt":  expiresAt, // camelCase for Admin Panel compatibility
+	})
+
+}
+
+// RefreshWithRefreshToken exchanges a refresh token for a new access token (and rotated refresh token)
+type refreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
+	var req refreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RefreshToken) == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid request", Message: "refresh_token is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Validate refresh token
+	hash := hashRefreshTokenString(req.RefreshToken)
+	id, userID, expiresAt, revoked, err := h.DB.GetRefreshToken(ctx, hash)
+	if err != nil || revoked || time.Now().After(expiresAt) {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Invalid refresh token", Message: "Token is invalid, expired, or revoked"})
+		return
+	}
+
+	// Rotate: revoke old token
+	_ = h.DB.RevokeRefreshToken(ctx, id)
+
+	// Fetch user email and role for claims (best effort)
+	var emailStr string
+	var roleStr string
+	if h.DB != nil && h.DB.Pool != nil {
+		var emailNS, roleNS sql.NullString
+		if err := h.DB.Pool.QueryRow(ctx, "SELECT email, role FROM users WHERE id = $1", userID).Scan(&emailNS, &roleNS); err == nil {
+			if emailNS.Valid {
+				emailStr = emailNS.String
+			}
+			if roleNS.Valid {
+				roleStr = roleNS.String
+			}
+		}
+	}
+
+	// Issue new access token
+	token, err := h.generateJWTToken(userID, emailStr, roleStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate token", Message: err.Error()})
+		return
+	}
+	// Access token expiry (minutes)
+	expirationMinutes := getEnvInt("JWT_EXPIRATION_MINUTES", 30)
+	if expirationMinutes <= 0 {
+		hours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
+		expirationMinutes = hours * 60
+	}
+	accessExpiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+
+	// Create new refresh token
+	plainRefresh, err := generateRefreshTokenString(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
+		return
+	}
+	newHash := hashRefreshTokenString(plainRefresh)
+	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
+	clientIP := getClientIP(c)
+	userAgent := c.GetHeader("User-Agent")
+	if _, err := h.DB.CreateRefreshToken(ctx, userID, newHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"token":              token,
+		"expires_at":         accessExpiresAt,
+		"refresh_token":      plainRefresh,
+		"refresh_expires_at": refreshExpiresAt,
 	})
 }
 
@@ -607,9 +720,26 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// Calculate token expiration
-	expirationHours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
-	tokenExpiresAt := time.Now().Add(time.Duration(expirationHours) * time.Hour)
+	// Calculate token expiration (minutes preferred)
+	expirationMinutes := getEnvInt("JWT_EXPIRATION_MINUTES", 30)
+	if expirationMinutes <= 0 {
+		hours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
+		expirationMinutes = hours * 60
+	}
+	tokenExpiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+
+	// Generate and persist refresh token
+	plainRefresh, err := generateRefreshTokenString(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
+		return
+	}
+	refreshHash := hashRefreshTokenString(plainRefresh)
+	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
+	if _, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+		return
+	}
 
 	// Security logging - successful authentication
 	fmt.Printf("[USER_AUTH] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n",
@@ -629,10 +759,12 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 		"role":        roleClaim,
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"token":      token,
-		"expires_at": tokenExpiresAt,
-		"expiresAt":  tokenExpiresAt, // keep camelCase for consistency elsewhere
-		"user":       respUser,
+		"token":              token,
+		"expires_at":         tokenExpiresAt,
+		"expiresAt":          tokenExpiresAt, // keep camelCase for consistency elsewhere
+		"refresh_token":      plainRefresh,
+		"refresh_expires_at": refreshExpiresAt,
+		"user":               respUser,
 	})
 }
 
@@ -811,15 +943,35 @@ func (h *Handler) UserVerifyPhoneCode(c *gin.Context) {
 		return
 	}
 
-	expirationHours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
-	tokenExpiresAt := time.Now().Add(time.Duration(expirationHours) * time.Hour)
+	// Calculate token expiration (minutes preferred)
+	expirationMinutes := getEnvInt("JWT_EXPIRATION_MINUTES", 30)
+	if expirationMinutes <= 0 {
+		hours := getEnvInt("JWT_EXPIRATION_HOURS", 24)
+		expirationMinutes = hours * 60
+	}
+	tokenExpiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
+
+	// Generate and persist refresh token
+	plainRefresh, err := generateRefreshTokenString(32)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
+		return
+	}
+	refreshHash := hashRefreshTokenString(plainRefresh)
+	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
+	if _, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+		return
+	}
 
 	fmt.Printf("[USER_AUTH][PHONE] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n", phone, clientIP, tokenExpiresAt.Format("2006-01-02 15:04:05"))
 
 	c.JSON(http.StatusOK, models.VerifyUserCodeResponse{
-		Token:     token,
-		ExpiresAt: tokenExpiresAt,
-		User:      *user,
+		Token:            token,
+		ExpiresAt:        tokenExpiresAt,
+		RefreshToken:     plainRefresh,
+		RefreshExpiresAt: refreshExpiresAt,
+		User:             *user,
 	})
 }
 

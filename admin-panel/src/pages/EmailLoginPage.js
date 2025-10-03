@@ -65,13 +65,18 @@ const EmailLoginPage = () => {
         code: code
       });
 
-      // Store token and user data
+      // Store token, refresh token and user data
       const tokenData = {
         token: response.data.token,
         expiresAt: response.data.expires_at
       };
+      const refreshData = {
+        refresh_token: response.data.refresh_token,
+        refresh_expires_at: response.data.refresh_expires_at
+      };
 
       localStorage.setItem('admin_token', JSON.stringify(tokenData));
+      localStorage.setItem('admin_refresh_token', JSON.stringify(refreshData));
       localStorage.setItem('admin_user', JSON.stringify(response.data.user));
 
       // Set default authorization header

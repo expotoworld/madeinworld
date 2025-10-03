@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -25,8 +25,6 @@ import {
   InputLabel,
   Select,
   Grid,
-  Card,
-  CardContent,
   Tooltip,
   Alert,
 } from '@mui/material';
@@ -37,8 +35,6 @@ import {
   Delete as DeleteIcon,
   Person as PersonIcon,
   Email as EmailIcon,
-  CalendarToday as CalendarIcon,
-  TrendingUp as TrendingUpIcon,
   PhoneIphone as PhoneIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
@@ -57,7 +53,6 @@ const UserListPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [analytics, setAnalytics] = useState(null);
 
   // Menu and dialog states
   const [anchorEl, setAnchorEl] = useState(null);
@@ -114,19 +109,9 @@ const UserListPage = () => {
     }
   };
 
-  // Fetch analytics data
-  const fetchAnalytics = async () => {
-    try {
-      const analyticsData = await userService.getUserAnalytics();
-      setAnalytics(analyticsData);
-    } catch (err) {
-      console.error('Error fetching analytics:', err);
-    }
-  };
 
   useEffect(() => {
     fetchUsers();
-    fetchAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, rowsPerPage, orderBy, order, roleFilter, statusFilter]);
 
@@ -326,6 +311,11 @@ const UserListPage = () => {
         </Grid>
       </Paper>
 
+      {/* Status indicators */}
+      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      {loading && <Typography variant="body2" sx={{ mt: 1 }}>Loading...</Typography>}
+
+
       {/* User list */}
       <Paper>
         <TableContainer>
@@ -337,7 +327,15 @@ const UserListPage = () => {
                 <TableCell>Phone</TableCell>
                 <TableCell>Role</TableCell>
                 <TableCell>Status</TableCell>
-                <TableCell>Created</TableCell>
+                <TableCell sortDirection={orderBy === 'created_at' ? order : false}>
+                  <TableSortLabel
+                    active={orderBy === 'created_at'}
+                    direction={orderBy === 'created_at' ? order : 'asc'}
+                    onClick={() => handleRequestSort('created_at')}
+                  >
+                    Created
+                  </TableSortLabel>
+                </TableCell>
                 <TableCell>Last Login</TableCell>
                 <TableCell>Orders</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -404,6 +402,32 @@ const UserListPage = () => {
         </TableContainer>
       </Paper>
 
+
+        <TablePagination
+          component="div"
+          count={totalUsers}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[10, 20, 50]}
+        />
+
+        <Menu
+          anchorEl={anchorEl}
+          open={Boolean(anchorEl)}
+          onClose={handleMenuClose}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <MenuItem onClick={() => { if (selectedUser) openEditDialog(selectedUser); handleMenuClose(); }}>
+            <EditIcon fontSize="small" style={{ marginRight: 8 }} /> Edit
+          </MenuItem>
+          <MenuItem onClick={() => { if (selectedUser) handleDeleteUser(selectedUser.id); handleMenuClose(); }}>
+            <DeleteIcon fontSize="small" style={{ marginRight: 8 }} /> Delete
+          </MenuItem>
+        </Menu>
+
       {/* Create User Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Create User</DialogTitle>
@@ -415,6 +439,19 @@ const UserListPage = () => {
             <Grid item xs={12} sm={6}>
               <TextField label="Email" fullWidth value={formData.email} onChange={(e) => handleFormChange('email', e.target.value)} error={!!formErrors.email} helperText={formErrors.email} />
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField label="First Name" fullWidth value={formData.first_name} onChange={(e) => handleFormChange('first_name', e.target.value)} error={!!formErrors.first_name} helperText={formErrors.first_name} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField label="Middle Name" fullWidth value={formData.middle_name} onChange={(e) => handleFormChange('middle_name', e.target.value)} error={!!formErrors.middle_name} helperText={formErrors.middle_name} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField label="Last Name" fullWidth value={formData.last_name} onChange={(e) => handleFormChange('last_name', e.target.value)} error={!!formErrors.last_name} helperText={formErrors.last_name} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField label="Phone" type="tel" fullWidth value={formData.phone || ''} onChange={(e) => handleFormChange('phone', e.target.value)} error={!!formErrors.phone} helperText={formErrors.phone} />
+            </Grid>
+
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
                 <InputLabel>Role</InputLabel>
@@ -514,7 +551,7 @@ const UserListPage = () => {
 
       {/* Floating Action Button to Create User */}
       <Box position="fixed" bottom={24} right={24}>
-        <Button variant="contained" startIcon={<Add as={AddIcon} />} onClick={() => setCreateDialogOpen(true)}>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
           Create User
         </Button>
       </Box>

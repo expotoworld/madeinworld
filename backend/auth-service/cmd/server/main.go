@@ -163,6 +163,9 @@ func setupRouter(handler *api.Handler) *gin.Engine {
 		// Token refresh
 		auth.POST("/refresh", handler.Refresh)
 
+		// Refresh with refresh token (mobile-friendly)
+		auth.POST("/token/refresh", handler.RefreshWithRefreshToken)
+
 		// Admin email verification routes (separate endpoints)
 		auth.POST("/admin/send-verification", handler.AdminSendVerification)
 		auth.POST("/admin/verify-code", handler.AdminVerifyCode)

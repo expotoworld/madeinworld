@@ -21,6 +21,11 @@ export default function App() {
   const { status, lastSavedAt, markSaving, markSaved, markError } = useSaving()
   const [token, setToken] = useState<string | null>(null)
 
+  useEffect(() => {
+    // load persisted token on mount
+    try { const t = JSON.parse(localStorage.getItem('ebook_token') || 'null')?.token || null; if (t) setToken(t); } catch {}
+  }, [])
+
   const saveDraft = useCallback(async (json: any) => {
     if (!token) return
     markSaving()

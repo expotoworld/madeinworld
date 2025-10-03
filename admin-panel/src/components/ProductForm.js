@@ -468,6 +468,7 @@ const ProductForm = ({ open, onClose, onProductCreated, product = null, onProduc
 
 
   // Handle Step 1: Basic Details validation
+  // eslint-disable-next-line no-unused-vars
   const handleStep1Submit = () => {
     try {
       setError(null);

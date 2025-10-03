@@ -13,6 +13,7 @@ const (
 	RoleManufacturer UserRole = "Manufacturer"
 	Role3PL          UserRole = "3PL"
 	RolePartner      UserRole = "Partner"
+	RoleAuthor       UserRole = "Author"
 )
 
 // UserStatus represents user account status
@@ -147,7 +148,7 @@ type SuccessResponse struct {
 // ValidateUserRole validates if the role is valid
 func ValidateUserRole(role string) bool {
 	switch UserRole(role) {
-	case RoleCustomer, RoleAdmin, RoleManufacturer, Role3PL, RolePartner:
+	case RoleCustomer, RoleAdmin, RoleManufacturer, Role3PL, RolePartner, RoleAuthor:
 		return true
 	default:
 		return false

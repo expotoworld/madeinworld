@@ -1,0 +1,208 @@
+/* Made in World – Ebook Editor Theme (Light/Dark)
+   Brand colors derived from admin-panel theme.js
+   - themeRed: #D92525
+   - lightRed: #FFF5F5
+   - primaryText: #1A1A1A
+   - secondaryText: #6A7485
+   - lightBackground: #F7F9FC
+*/
+
+:root {
+  --color-bg: #F7F9FC;
+  --color-surface: #FFFFFF;
+  --color-text: #1A1A1A;
+  --color-muted: #6A7485;
+  --color-border: #E5E7EB;
+  --color-primary: #D92525;
+  --color-primary-contrast: #FFFFFF;
+
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.12);
+
+  --font-latin: "Manrope", system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  /* Chinese fallback stack with HeiTi preference */
+  --font-cjk: "Heiti SC", "Heiti TC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Zen Hei", SimHei, sans-serif;
+  --font-sans: var(--font-latin), var(--font-cjk);
+}
+
+/* Dark theme */
+:root[data-theme="dark"] {
+  --color-bg: #0F1115;
+  --color-surface: #141821;
+  --color-text: #E6E9EF;
+  --color-muted: #9AA3B2;
+  --color-border: #2A2F3A;
+  --color-primary: #D92525; /* keep brand red */
+  --color-primary-contrast: #FFFFFF;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* App shell */
+.editor-app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.editor-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0));
+  padding-bottom: 12px;
+}
+
+.brand-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-title {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.status-badge {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.status-badge.success { color: #16a34a; }
+.status-badge.error { color: #ef4444; }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+/* Toolbar */
+.editor-toolbar {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  box-shadow: var(--shadow-sm);
+}
+.toolbar-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.toolbar-btn:hover { background: rgba(0,0,0,0.04); }
+:root[data-theme="dark"] .toolbar-btn:hover { background: rgba(255,255,255,0.06); }
+.toolbar-btn.is-active {
+  background: var(--color-lightRed, rgba(217,37,37,0.12));
+  border-color: rgba(217,37,37,0.25);
+  color: var(--color-primary);
+}
+.toolbar-sep { width: 1px; height: 24px; background: var(--color-border); margin: 0 2px; }
+
+/* Editor surface */
+.editor-surface {
+  margin-top: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 20px 24px;
+  min-height: 520px;
+}
+
+/* Tiptap / ProseMirror content styling close to Simple template */
+.ProseMirror {
+  outline: none;
+}
+.ProseMirror p { line-height: 1.8; font-size: 16px; }
+.ProseMirror h1 { font-size: 28px; line-height: 1.3; margin: 1.2em 0 0.5em; font-weight: 800; }
+.ProseMirror h2 { font-size: 22px; line-height: 1.35; margin: 1.1em 0 0.5em; font-weight: 700; }
+.ProseMirror h3 { font-size: 18px; line-height: 1.4; margin: 1em 0 0.5em; font-weight: 700; }
+.ProseMirror blockquote {
+  margin: 1em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-muted);
+}
+.ProseMirror pre {
+  background: rgba(16,18,22,0.85);
+  color: #e2e8f0;
+  padding: 14px;
+  border-radius: 8px;
+  overflow: auto;
+}
+:root[data-theme="light"] .ProseMirror pre { background: #0f172a; color: #e2e8f0; }
+
+.ProseMirror hr { border: none; border-top: 1px solid var(--color-border); margin: 24px 0; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 24px; }
+
+/* Buttons */
+.primary-btn {
+  appearance: none;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.primary-btn:hover { filter: brightness(0.98); }
+
+.secondary-btn {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* Inputs (Login etc.) */
+input[type="email"], input[type="text"], input[type="password"] {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Utility */
+.mt-16 { margin-top: 16px; }
+.mt-8 { margin-top: 8px; }
+.flex { display: flex; }
+.gap-8 { gap: 8px; }
+.justify-between { justify-content: space-between; }
+

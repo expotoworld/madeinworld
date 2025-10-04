@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -11,8 +12,8 @@ import (
 
 // JWTOptionalMiddleware parses JWT if present but does not enforce it
 func JWTOptionalMiddleware() gin.HandlerFunc {
-	secret := os.Getenv("JWT_SECRET")
 	return func(c *gin.Context) {
+		secret := os.Getenv("JWT_SECRET")
 		auth := c.GetHeader("Authorization")
 		if len(auth) > 7 && auth[:7] == "Bearer " && secret != "" {
 			tokStr := auth[7:]
@@ -38,20 +39,37 @@ func JWTOptionalMiddleware() gin.HandlerFunc {
 
 // JWTMiddleware requires a valid JWT
 func JWTMiddleware() gin.HandlerFunc {
-	secret := os.Getenv("JWT_SECRET")
 	return func(c *gin.Context) {
+		secret := os.Getenv("JWT_SECRET")
 		auth := c.GetHeader("Authorization")
-		if len(auth) <= 7 || auth[:7] != "Bearer " || secret == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid token"})
+		if secret == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid token", "detail": "server JWT secret not configured"})
 			c.Abort()
 			return
 		}
+		if len(auth) <= 7 || auth[:7] != "Bearer " {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid token", "detail": "authorization header missing or malformed"})
+			c.Abort()
+			return
+		}
+		// Debug: log presence and short prefix of token (dev only)
+		if len(auth) > 20 {
+			log.Printf("[JWT] Authorization header present, token prefix: %s...", auth[7:27])
+		}
 		tokStr := auth[7:]
 		token, err := jwt.Parse(tokStr, func(token *jwt.Token) (interface{}, error) {
+			// Accept only HMAC-signed tokens
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
 			return []byte(secret), nil
 		})
 		if err != nil || token == nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			msg := "invalid token"
+			if err != nil {
+				msg = err.Error()
+			}
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token", "detail": msg})
 			c.Abort()
 			return
 		}

@@ -95,8 +95,6 @@ func PutAutosaveEbookHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		uploader, _ := storage.NewS3Uploader(ctx)
-
 		tx, err := db.Begin(ctx)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -111,18 +109,7 @@ func PutAutosaveEbookHandler(db *pgxpool.Pool) gin.HandlerFunc {
 			return
 		}
 
-		// Archive old content as autosave if present
-		if uploader.Enabled() && oldContent.Valid && len(oldContent.String) > 2 { // not empty {}
-			var oldJSON any
-			_ = json.Unmarshal([]byte(oldContent.String), &oldJSON)
-			key := storage.TimestampKey("ebook/versions/autosave/")
-			if _, err := uploader.UploadJSON(ctx, key, oldJSON); err == nil {
-				if _, err := tx.Exec(ctx, `INSERT INTO ebook_versions (ebook_id, kind, s3_key, label) VALUES ($1,'autosave',$2,NULL)`, ebookID, key); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-					return
-				}
-			}
-		}
+		// Autosave: single-file strategy — only update ebooks.content (no S3 snapshot, no version row)
 
 		b, _ := json.Marshal(newContent)
 		if _, err := tx.Exec(ctx, `UPDATE ebooks SET content=$1::jsonb, updated_at=now() WHERE id=$2`, string(b), ebookID); err != nil {

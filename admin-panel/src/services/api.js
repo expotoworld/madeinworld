@@ -40,14 +40,24 @@ async function performRefresh() {
   try {
     const rt = getRefreshToken();
     if (!rt) throw new Error('No refresh token');
+<<<<<<< HEAD
+    const resp = await axios.post(`${AUTH_BASE}/token/refresh`, { refresh_token: rt, rotate: false });
+=======
     const resp = await axios.post(`${AUTH_BASE}/token/refresh`, { refresh_token: rt });
+>>>>>>> origin/main
     const newToken = resp.data?.token;
     const newTokenExp = resp.data?.expires_at;
     const newRefresh = resp.data?.refresh_token;
     const newRefreshExp = resp.data?.refresh_expires_at;
+<<<<<<< HEAD
+    if (!newToken) throw new Error('Invalid refresh response');
+    setAccessToken(newToken, newTokenExp);
+    if (newRefresh && newRefreshExp) setRefreshToken(newRefresh, newRefreshExp);
+=======
     if (!newToken || !newRefresh) throw new Error('Invalid refresh response');
     setAccessToken(newToken, newTokenExp);
     setRefreshToken(newRefresh, newRefreshExp);
+>>>>>>> origin/main
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
     pendingRequests.forEach(p => p.resolve(newToken));
     pendingRequests = [];
@@ -76,6 +86,42 @@ const api = axios.create({
 function attachRequestInterceptor(instance) {
   instance.interceptors.request.use(
     (config) => {
+<<<<<<< HEAD
+      const url = typeof config.url === 'string' ? config.url : '';
+      const isRefresh = url.includes('/token/refresh');
+      if (!isRefresh) {
+        const tok = getAccessToken();
+        if (tok) config.headers.Authorization = `Bearer ${tok}`;
+      }
+      return config;
+    },
+    (error) => Promise.reject(error)
+  );
+}
+attachRequestInterceptor(api);
+attachRequestInterceptor(axios);
+
+// 401 handler with silent refresh (once) then retry
+function attachResponseInterceptor(instance) {
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config || {};
+      const url = typeof originalRequest.url === 'string' ? originalRequest.url : '';
+      const isRefresh = url.includes('/token/refresh');
+      if (!isRefresh && error.response?.status === 401 && !originalRequest?._retry) {
+        originalRequest._retry = true;
+        try {
+          const newTok = await performRefresh();
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers['Authorization'] = `Bearer ${newTok}`;
+          return instance(originalRequest);
+        } catch (e) {
+          if (window.location.hash !== '#/login') window.location.hash = '#/login';
+          return Promise.reject(error);
+        }
+      }
+=======
       const tok = getAccessToken();
       if (tok) config.headers.Authorization = `Bearer ${tok}`;
       return config;
@@ -105,6 +151,7 @@ function attachResponseInterceptor(instance) {
           return Promise.reject(error);
         }
       }
+>>>>>>> origin/main
       return Promise.reject(error);
     }
   );
@@ -130,16 +177,18 @@ const getAuthHeaders = () => {
   return {};
 };
 
-// Response interceptor for handling auth errors
+// Response interceptor for handling auth errors (final fallback)
+// Do NOT clear tokens on the first 401; let the refresh interceptor above handle retry.
+// Only clear if a retry already happened or no refresh token is present.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Clear invalid token
+    const original = error.config || {}
+    const hasTried = !!original._retry
+    const hasRefresh = !!localStorage.getItem('admin_refresh_token')
+    if (error.response?.status === 401 && (hasTried || !hasRefresh)) {
       localStorage.removeItem('admin_token');
       localStorage.removeItem('admin_user');
-
-      // Redirect to login if not already there
       if (window.location.hash !== '#/login') {
         window.location.hash = '#/login';
       }

@@ -12,6 +12,9 @@ export function setAccessToken(token: string, expires_at?: string) {
   localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expires_at }))
   axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
 }
+export function getAccessTokenExp(): number | null {
+  try { return new Date(JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null')?.expires_at).getTime() || null } catch { return null }
+}
 export function getRefreshToken(): string | null {
   try { return JSON.parse(localStorage.getItem(REFRESH_KEY) || 'null')?.refresh_token || null } catch { return null }
 }
@@ -32,14 +35,14 @@ async function refreshOnce(): Promise<string> {
   try {
     const rt = getRefreshToken()
     if (!rt) throw new Error('No refresh token')
-    const res = await axios.post(`${AUTH_BASE}/api/auth/token/refresh`, { refresh_token: rt })
+    const res = await axios.post(`${AUTH_BASE}/api/auth/token/refresh`, { refresh_token: rt, rotate: false })
     const token = res.data?.token as string
     const tokenExp = res.data?.expires_at as string
-    const newRt = res.data?.refresh_token as string
-    const newRtExp = res.data?.refresh_expires_at as string
-    if (!token || !newRt) throw new Error('Invalid refresh response')
+    const newRt = res.data?.refresh_token as string | undefined
+    const newRtExp = res.data?.refresh_expires_at as string | undefined
+    if (!token) throw new Error('Invalid refresh response')
     setAccessToken(token, tokenExp)
-    setRefreshToken(newRt, newRtExp)
+    if (newRt && newRtExp) setRefreshToken(newRt, newRtExp)
     waiters.forEach(w => w.resolve(token)); waiters = []
     return token
   } catch (e) {
@@ -52,17 +55,36 @@ async function refreshOnce(): Promise<string> {
 }
 
 export function installAxiosInterceptors() {
-  axios.interceptors.request.use(cfg => {
-    const tok = getAccessToken()
-    if (tok) {
-      cfg.headers = cfg.headers || {}
-      cfg.headers['Authorization'] = `Bearer ${tok}`
+  axios.interceptors.request.use(async (cfg) => {
+    const url = typeof cfg.url === 'string' ? cfg.url : ''
+    const isRefreshCall = url.includes('/api/auth/token/refresh')
+
+    // Proactively refresh if access token is very close to expiring (<10s)
+    // IMPORTANT: never try to refresh while performing the refresh call itself to avoid deadlocks.
+    if (!isRefreshCall) {
+      const exp = getAccessTokenExp()
+      if (exp && exp - Date.now() < 10_000) {
+        try { await refreshOnce() } catch {}
+      }
+    }
+
+    // Attach Authorization except for refresh call (body carries refresh_token)
+    if (!isRefreshCall) {
+      const tok = getAccessToken()
+      if (tok) {
+        cfg.headers = cfg.headers || {}
+        cfg.headers['Authorization'] = `Bearer ${tok}`
+      }
     }
     return cfg
   })
+
   axios.interceptors.response.use(r => r, async (error) => {
-    const original = error.config
-    if (error?.response?.status === 401 && !original?._retry) {
+    const original = error.config || {}
+    const url = typeof original.url === 'string' ? original.url : ''
+    const isRefreshCall = url.includes('/api/auth/token/refresh')
+
+    if (!isRefreshCall && error?.response?.status === 401 && !original?._retry) {
       original._retry = true
       try {
         const newTok = await refreshOnce()

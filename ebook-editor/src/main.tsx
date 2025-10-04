@@ -4,6 +4,7 @@ import App from './App'
 import { installAxiosInterceptors } from './auth'
 import './styles.css'
 
+
 installAxiosInterceptors()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

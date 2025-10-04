@@ -295,6 +295,8 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 			_, _ = h.DB.Pool.Exec(ctx, `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND ip_address = $2 AND revoked = false AND id::text <> $3`, userID, clientIP, id)
 		}
 	}
+	// Rotate: revoke old token
+	_ = h.DB.RevokeRefreshToken(ctx, id)
 
 	// Fetch user email and role for claims (best effort)
 	var emailStr string
@@ -341,12 +343,6 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"token":              token,
-			"expires_at":         accessExpiresAt,
-			"refresh_token":      plainRefresh,
-			"refresh_expires_at": refreshExpiresAt,
-		})
 		return
 	}
 

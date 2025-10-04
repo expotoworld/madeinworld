@@ -258,9 +258,11 @@ func (h *Handler) Refresh(c *gin.Context) {
 
 }
 
-// RefreshWithRefreshToken exchanges a refresh token for a new access token (and rotated refresh token)
+// RefreshWithRefreshToken exchanges a refresh token for a new access token.
+// By default it DOES NOT rotate the refresh token unless rotate=true is provided.
 type refreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
+	Rotate       *bool  `json:"rotate,omitempty"`
 }
 
 func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
@@ -281,8 +283,18 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 		return
 	}
 
-	// Rotate: revoke old token
-	_ = h.DB.RevokeRefreshToken(ctx, id)
+	// Determine rotation behavior (default false)
+	rotate := req.Rotate != nil && *req.Rotate
+
+	if rotate {
+		// Revoke the specific old token first
+		_ = h.DB.RevokeRefreshToken(ctx, id)
+		// Also revoke any other active tokens for same user and IP to prevent accumulation
+		clientIP := getClientIP(c)
+		if h.DB != nil && h.DB.Pool != nil && clientIP != "" {
+			_, _ = h.DB.Pool.Exec(ctx, `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND ip_address = $2 AND revoked = false AND id::text <> $3`, userID, clientIP, id)
+		}
+	}
 
 	// Fetch user email and role for claims (best effort)
 	var emailStr string
@@ -313,26 +325,35 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 	}
 	accessExpiresAt := time.Now().Add(time.Duration(expirationMinutes) * time.Minute)
 
-	// Create new refresh token
-	plainRefresh, err := generateRefreshTokenString(32)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
-		return
-	}
-	newHash := hashRefreshTokenString(plainRefresh)
-	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
-	clientIP := getClientIP(c)
-	userAgent := c.GetHeader("User-Agent")
-	if _, err := h.DB.CreateRefreshToken(ctx, userID, newHash, refreshExpiresAt, clientIP, userAgent); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+	if rotate {
+		// Create new refresh token
+		plainRefresh, err := generateRefreshTokenString(32)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate refresh token", Message: err.Error()})
+			return
+		}
+		newHash := hashRefreshTokenString(plainRefresh)
+		refreshExpiresAt := time.Now().Add(refreshTokenTTL())
+		clientIP := getClientIP(c)
+		userAgent := c.GetHeader("User-Agent")
+		if _, err := h.DB.CreateRefreshToken(ctx, userID, newHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"token":              token,
+			"expires_at":         accessExpiresAt,
+			"refresh_token":      plainRefresh,
+			"refresh_expires_at": refreshExpiresAt,
+		})
 		return
 	}
 
+	// No rotation path: only issue a new access token; do not create or return a new refresh token
 	c.JSON(http.StatusOK, gin.H{
-		"token":              token,
-		"expires_at":         accessExpiresAt,
-		"refresh_token":      plainRefresh,
-		"refresh_expires_at": refreshExpiresAt,
+		"token":      token,
+		"expires_at": accessExpiresAt,
 	})
 }
 

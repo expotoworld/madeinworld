@@ -55,6 +55,10 @@ jobs:
           ETag=$(jq -r '.ETag' conf.json)
           jq -r '.DistributionConfig' conf.json > dc.json
 
+          echo "Debug: Default FLE ID: $(jq -r '.DefaultCacheBehavior.FieldLevelEncryptionId // ""' dc.json)"
+          echo "Debug: Existing behavior FLE IDs:"
+          jq -r '.CacheBehaviors.Items // [] | map({path: .PathPattern, fle: (.FieldLevelEncryptionId // "")})' dc.json
+
           # Determine TargetOriginId from default behavior
           ORIGIN_ID=$(jq -r '.DefaultCacheBehavior.TargetOriginId' dc.json)
           if [ -z "$ORIGIN_ID" ] || [ "$ORIGIN_ID" = "null" ]; then

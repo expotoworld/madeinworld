@@ -5,6 +5,7 @@ import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import debounce from 'lodash.debounce'
 import axios from 'axios'
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'https://device-api.expomadeinworld.com'
 import Login from './Login'
 import Toolbar from './Toolbar'
 import { ThemeProvider, useThemeMode } from './theme'
@@ -54,7 +55,7 @@ export default function App() {
     if (!token) return
     markSaving()
     try {
-      await axios.put('/api/ebook', json)
+      await axios.put(`${API_BASE}/api/ebook`, json)
       markSaved()
     } catch (e) {
       console.error(e)
@@ -88,7 +89,7 @@ export default function App() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await axios.get('/api/ebook')
+        const res = await axios.get(`${API_BASE}/api/ebook`)
         const content = res.data?.content
         if (!cancelled && content && typeof content === 'object' && Object.keys(content || {}).length > 0) {
           // Do not emit update to avoid triggering autosave immediately
@@ -114,14 +115,14 @@ export default function App() {
           <button className="primary-btn" onClick={async () => {
             if (!editor) return
             try {
-              await axios.post('/api/ebook/versions', null)
+              await axios.post(`${API_BASE}/api/ebook/versions`, null)
               alert('Manual version created')
             } catch (e) { alert('Failed to create version') }
           }}>Save version</button>
           <button className="secondary-btn" onClick={async () => {
             if (!editor) return
             try {
-              await axios.post('/api/ebook/publish', null)
+              await axios.post(`${API_BASE}/api/ebook/publish`, null)
               alert('Published!')
             } catch (e) { alert('Failed to publish') }
           }}>Publish</button>

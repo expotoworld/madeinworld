@@ -89,6 +89,7 @@ jobs:
                 ViewerProtocolPolicy: "redirect-to-https",
                 AllowedMethods: { Quantity: 7, Items: ["GET","HEAD","OPTIONS","PUT","PATCH","POST","DELETE"], CachedMethods: { Quantity: 2, Items: ["GET","HEAD"] } },
                 Compress: true,
+                SmoothStreaming: false,
                 CachePolicyId: $mid
               }]))
               | (.CacheBehaviors.Quantity = ((.CacheBehaviors.Items|length) // 0))

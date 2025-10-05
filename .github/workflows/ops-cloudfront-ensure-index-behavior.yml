@@ -88,6 +88,8 @@ jobs:
                   | .PathPattern = "/index.html"
                   | .TargetOriginId = $oid
                   | .ViewerProtocolPolicy = "redirect-to-https"
+                  | .AllowedMethods = (.AllowedMethods // { Quantity: 7, Items: ["GET","HEAD","OPTIONS","PUT","PATCH","POST","DELETE"], CachedMethods: { Quantity: 2, Items: ["GET","HEAD"] } })
+                  | .Compress = true
                   | .CachePolicyId = $mid
                   | .SmoothStreaming = false)
               ]))

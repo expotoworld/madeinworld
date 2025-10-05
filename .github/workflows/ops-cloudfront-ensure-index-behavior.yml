@@ -1,0 +1,103 @@
+name: Ensure CloudFront /index.html behavior (CachingDisabled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      distribution_id:
+        description: CloudFront Distribution ID (optional; defaults to repo secret)
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  ensure-index-behavior:
+    runs-on: ubuntu-latest
+    env:
+      DIST_ID_INPUT: ${{ inputs.distribution_id }}
+      DIST_ID_SECRET: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install jq
+        run: sudo apt-get update -y && sudo apt-get install -y jq
+
+      - name: Determine Distribution ID
+        id: dist
+        run: |
+          set -e
+          if [ -n "$DIST_ID_INPUT" ]; then
+            echo "id=$DIST_ID_INPUT" >> $GITHUB_OUTPUT
+          elif [ -n "$DIST_ID_SECRET" ]; then
+            echo "id=$DIST_ID_SECRET" >> $GITHUB_OUTPUT
+          else
+            echo "No distribution id provided and no secret set" >&2
+            exit 1
+          fi
+
+      - name: Ensure /index.html behavior with CachingDisabled
+        env:
+          DIST_ID: ${{ steps.dist.outputs.id }}
+        run: |
+          set -e
+          echo "Target Distribution: $DIST_ID"
+          # Fetch current config and ETag
+          aws cloudfront get-distribution-config --id "$DIST_ID" > conf.json
+          ETag=$(jq -r '.ETag' conf.json)
+          jq -r '.DistributionConfig' conf.json > dc.json
+
+          # Determine TargetOriginId from default behavior
+          ORIGIN_ID=$(jq -r '.DefaultCacheBehavior.TargetOriginId' dc.json)
+          if [ -z "$ORIGIN_ID" ] || [ "$ORIGIN_ID" = "null" ]; then
+            echo "Could not determine TargetOriginId" >&2
+            exit 1
+          fi
+
+          # Find the managed CachingDisabled CachePolicy ID
+          MID=$(aws cloudfront list-cache-policies --type managed \
+            --query "CachePolicyList.Items[?CachePolicy.CachePolicyConfig.Name=='Managed-CachingDisabled'].CachePolicy.Id | [0]" \
+            --output text)
+          if [ -z "$MID" ] || [ "$MID" = "None" ]; then
+            echo "Managed-CachingDisabled cache policy not found" >&2
+            exit 1
+          fi
+          echo "Managed CachingDisabled ID: $MID"
+
+          # Check if behavior for /index.html already exists
+          COUNT=$(jq -r '.CacheBehaviors.Quantity' dc.json)
+          if [ "$COUNT" = "null" ] || [ -z "$COUNT" ]; then COUNT=0; fi
+          EXISTS=$(jq -r ".CacheBehaviors.Items // [] | map(select(.PathPattern==\"/index.html\")) | length" dc.json)
+
+          if [ "$EXISTS" != "0" ]; then
+            echo "/index.html behavior already present; ensuring cache policy is CachingDisabled"
+            jq --arg mid "$MID" '(.CacheBehaviors.Items // []) |= map(if .PathPattern=="/index.html" then (.CachePolicyId=$mid) else . end)' dc.json > dc2.json
+          else
+            echo "Adding /index.html behavior"
+            jq --arg mid "$MID" --arg oid "$ORIGIN_ID" '
+              (.CacheBehaviors.Items |= ((. // []) + [{
+                PathPattern: "/index.html",
+                TargetOriginId: $oid,
+                ViewerProtocolPolicy: "redirect-to-https",
+                AllowedMethods: { Quantity: 7, Items: ["GET","HEAD","OPTIONS","PUT","PATCH","POST","DELETE"], CachedMethods: { Quantity: 2, Items: ["GET","HEAD"] } },
+                Compress: true,
+                CachePolicyId: $mid
+              }]))
+              | (.CacheBehaviors.Quantity = ((.CacheBehaviors.Items|length) // 0))
+            ' dc.json > dc2.json
+          fi
+
+          # Update the distribution
+          SRC=$(jq -c '.' dc2.json)
+          echo "Updating distribution behaviors..."
+          aws cloudfront update-distribution --id "$DIST_ID" --if-match "$ETag" --distribution-config "$SRC" > out.json
+          echo "Update complete"
+

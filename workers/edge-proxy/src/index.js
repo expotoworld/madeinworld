@@ -36,6 +36,9 @@ export default {
       upstream = env.AUTH_SERVICE_URL;
     } else if (originalPath.startsWith('/api/v1')) {
       upstream = env.CATALOG_SERVICE_URL;
+    } else if (originalPath.startsWith('/api/ebook')) {
+      // Route ebook editor API to ebook-service (autosave, versions, publish)
+      upstream = env.EBOOK_SERVICE_URL;
     } else if (originalPath.startsWith('/uploads')) {
       // Serve static/uploads from the catalog service
       upstream = env.CATALOG_SERVICE_URL;

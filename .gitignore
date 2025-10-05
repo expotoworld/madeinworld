@@ -2,7 +2,7 @@
 auth-cleanup-lambda/
 
 # Remove docs directory from repo and keep ignored
-madeinworld_docs/
+/docs/
 
 # =============================================================================
 # Made in World Project - Comprehensive .gitignore
@@ -302,6 +302,9 @@ CR06E开发文档/
 # MISC PROJECT FILES
 # =============================================================================
 # Documentation build outputs
+# Local-only docs folder (never push)
+madeinworld_docs/
+
 /docs/build/
 /docs/dist/
 

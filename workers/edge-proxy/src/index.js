@@ -101,7 +101,7 @@ function corsHeaders(origin) {
   h.set('Access-Control-Allow-Origin', origin || '*');
   h.set('Vary', 'Origin');
   h.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  h.set('Access-Control-Allow-Headers', 'Origin,Content-Type,Accept,Authorization,X-Correlation-Id,X-Admin-Request');
+  h.set('Access-Control-Allow-Headers', 'Origin,Content-Type,Accept,Authorization,X-Correlation-Id,X-Admin-Request,X-Require-Existing,X-Require-Role,X-CSRF-Token');
   h.set('Access-Control-Allow-Credentials', 'true');
   return h;
 }

@@ -86,7 +86,7 @@ jobs:
 
           if [ "$EXISTS" != "0" ]; then
             echo "/index.html behavior already present; ensuring cache policy is CachingDisabled"
-            jq --arg mid "$MID" --arg fle "$FLE_ID" '(.CacheBehaviors.Items // []) |= map(if .PathPattern=="/index.html" then ((.CachePolicyId=$mid) | (.SmoothStreaming=false) | (.AllowedMethods={ Quantity: 3, Items: ["GET","HEAD","OPTIONS"], CachedMethods: { Quantity: 2, Items: ["GET","HEAD"] } }) | (if ($fle != null and $fle != "") then (.FieldLevelEncryptionId=$fle) else . end)) else . end)' dc.json > dc2.json
+            jq --arg mid "$MID" --arg fle "$FLE_ID" '(.CacheBehaviors.Items // []) |= map(if .PathPattern=="/index.html" then ((.CachePolicyId=$mid) | (.SmoothStreaming=false) | (.AllowedMethods={ Quantity: 3, Items: ["GET","HEAD","OPTIONS"], CachedMethods: { Quantity: 2, Items: ["GET","HEAD"] } }) | (.FieldLevelEncryptionId=($fle // ""))) else . end)' dc.json > dc2.json
           else
             echo "Adding /index.html behavior"
             jq --arg mid "$MID" --arg oid "$ORIGIN_ID" --arg fle "$FLE_ID" '
@@ -99,7 +99,7 @@ jobs:
                   | .Compress = true
                   | .CachePolicyId = $mid
                   | .SmoothStreaming = false
-                  | (if ($fle != null and $fle != "") then (.FieldLevelEncryptionId = $fle) else . end))
+                  | (.FieldLevelEncryptionId = ($fle // "")))
               ]))
               | (.CacheBehaviors.Quantity = (.CacheBehaviors.Items|length))
             ' dc.json > dc2.json

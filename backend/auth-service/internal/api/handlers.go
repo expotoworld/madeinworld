@@ -295,9 +295,6 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 			_, _ = h.DB.Pool.Exec(ctx, `UPDATE refresh_tokens SET revoked = true WHERE user_id = $1 AND ip_address = $2 AND revoked = false AND id::text <> $3`, userID, clientIP, id)
 		}
 	}
-	// Rotate: revoke old token
-	_ = h.DB.RevokeRefreshToken(ctx, id)
-
 	// Fetch user email and role for claims (best effort)
 	var emailStr string
 	var roleStr string
@@ -343,6 +340,13 @@ func (h *Handler) RefreshWithRefreshToken(c *gin.Context) {
 			return
 		}
 
+		// On rotation, return both the new access token and the new refresh token
+		c.JSON(http.StatusOK, gin.H{
+			"token":              token,
+			"expires_at":         accessExpiresAt,
+			"refresh_token":      plainRefresh,
+			"refresh_expires_at": refreshExpiresAt,
+		})
 		return
 	}
 
@@ -753,9 +757,22 @@ func (h *Handler) UserVerifyCode(c *gin.Context) {
 	}
 	refreshHash := hashRefreshTokenString(plainRefresh)
 	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
-	if _, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+	rtID, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
 		return
+	}
+	// Revoke all other active refresh tokens for the same user and user agent
+	if h.DB != nil && h.DB.Pool != nil {
+		_, _ = h.DB.Pool.Exec(ctx,
+			`UPDATE refresh_tokens
+		 SET revoked = true
+		 WHERE user_id = $1
+		   AND COALESCE(user_agent,'') = COALESCE($2,'')
+		   AND revoked = false
+		   AND id <> $3`,
+			user.ID, userAgent, rtID,
+		)
 	}
 
 	// Security logging - successful authentication
@@ -976,9 +993,22 @@ func (h *Handler) UserVerifyPhoneCode(c *gin.Context) {
 	}
 	refreshHash := hashRefreshTokenString(plainRefresh)
 	refreshExpiresAt := time.Now().Add(refreshTokenTTL())
-	if _, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent); err != nil {
+	rtID, err := h.DB.CreateRefreshToken(ctx, user.ID, refreshHash, refreshExpiresAt, clientIP, userAgent)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to persist refresh token", Message: err.Error()})
 		return
+	}
+	// Revoke all other active refresh tokens for the same user and user agent
+	if h.DB != nil && h.DB.Pool != nil {
+		_, _ = h.DB.Pool.Exec(ctx,
+			`UPDATE refresh_tokens
+		 SET revoked = true
+		 WHERE user_id = $1
+		   AND COALESCE(user_agent,'') = COALESCE($2,'')
+		   AND revoked = false
+		   AND id <> $3`,
+			user.ID, userAgent, rtID,
+		)
 	}
 
 	fmt.Printf("[USER_AUTH][PHONE] SUCCESSFUL authentication for %s from IP: %s, Token expires: %s\n", phone, clientIP, tokenExpiresAt.Format("2006-01-02 15:04:05"))

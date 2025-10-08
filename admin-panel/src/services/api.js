@@ -40,7 +40,11 @@ async function performRefresh() {
   try {
     const rt = getRefreshToken();
     if (!rt) throw new Error('No refresh token');
+<<<<<<< HEAD
     const resp = await axios.post(`${AUTH_BASE}/token/refresh`, { refresh_token: rt, rotate: false });
+=======
+    const resp = await axios.post(`${AUTH_BASE}/token/refresh`, { refresh_token: rt });
+>>>>>>> origin/main
     const newToken = resp.data?.token;
     const newTokenExp = resp.data?.expires_at;
     const newRefresh = resp.data?.refresh_token;

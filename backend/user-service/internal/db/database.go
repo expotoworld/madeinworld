@@ -69,7 +69,10 @@ func NewDatabaseWithRetry(maxRetries int, initialDelay time.Duration) (*Database
 
 	// Create connection string
 	var connStr string
-	if password == "" {
+	if uri := os.Getenv("DATABASE_URL"); uri != "" {
+		// Prefer full DSN if provided (Neon/Heroku style)
+		connStr = uri
+	} else if password == "" {
 		connStr = fmt.Sprintf("host=%s port=%s user=%s dbname=%s sslmode=%s",
 			host, port, user, dbname, sslmode)
 	} else {
